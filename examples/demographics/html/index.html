@@ -1,0 +1,51 @@
+<html>
+   <head>
+      <title>HTTP request</title>
+      <script src="request.js"></script>
+   </head>
+   <body>
+      <h2 style="text-align:center">HTTP request</h2>
+      <table border="0" cellpadding="5" cellspacing="5">
+         <tr>
+            <td valign="top">url</td>
+            <td valign="top"><input id="url" size="60"></td>
+         </tr>
+         <tr>
+            <td valign="top">method</td>
+            <td valign="top">
+               <select id="method">
+                  <option>GET</option>
+                  <option>POST</option>
+                  <option>PUT</option>
+                  <option>PATCH</option>
+                  <option>DELETE</option>
+               </select>
+            </td>
+         </tr>
+         <tr>
+            <td valign="top">format</td>
+            <td valign="top"><input id="format" size="60" value="application/json"></td>
+         </tr>
+         <tr>
+            <td valign="top">headers</td>
+            <td valign="top"><textarea id="headers" cols="60" rows="1"></textarea></td>
+         </tr>
+         <tr>
+            <td valign="top">data</td>
+            <td valign="top"><textarea id="data" cols="60" rows="5"></textarea></td>
+         </tr>
+         <tr>
+            <td valign="top">file</td>
+            <td valign="top"><input id="file" type="file"><input id="view" type="button" value="View"></td>
+         </tr>
+         <tr>
+            <td valign="top" colspan="2"><input id="action" type="button" value="Envoyer"></td>
+         </tr>
+      </table>
+      <hr>
+      <div id="response"></div>
+      <hr>
+      <div id="result"></div>
+   </body>
+</html>
+

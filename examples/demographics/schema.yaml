@@ -1,0 +1,108 @@
+city:
+  type: object
+  required:
+    - id
+  properties:
+    id:
+      type: integer
+    name:
+      type: string
+      maxLength: 50
+    country:
+      type: country
+    region:
+      type: string
+      maxLength: 50
+    population:
+      type: integer
+    longitude:
+      type: number
+    latitude:
+      type: number
+    altitude:
+      type: number
+country:
+  type: object
+  required:
+    - code
+  properties:
+    code:
+      type: string
+      maxLength: 3
+    code2:
+      type: string
+      maxLength: 2
+    name:
+      type: string
+      maxLength: 60
+    region:
+      type: string
+      maxLength: 60
+    continent:
+      type: continent
+    surface_area:
+      type: number
+    independance_year:
+      type: integer
+    population:
+      type: integer
+    life_expectancy:
+      type: number
+    gross_national_product:
+      type: number
+    government_form:
+      type: string
+      maxLength: 50
+    head_of_state:
+      type: string
+      maxLength: 100
+    capital:
+      type: city
+    languages:
+        type: array
+        items: country_language
+region:
+  type: object
+  required:
+    - name
+    - country
+  properties:
+    name:
+      type: string
+      maxLength: 100
+    country:
+      type: country
+continent:
+  type: object
+  required:
+    - name
+  properties:
+    name:
+      type: string
+      maxLength: 20
+language:
+  type: object
+  required:
+    - code
+  properties:
+    code:
+      type: string
+      maxLength: 2
+    name:
+      type: string
+      maxLength: 50
+country_language:
+  type: object
+  required:
+    - country
+    - language
+  properties:
+    country:
+      type: country
+    language:
+      type: language
+    official:
+      type: boolean
+    percentage:
+      type: number
+

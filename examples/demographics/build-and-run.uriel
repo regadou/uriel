@@ -1,0 +1,14 @@
+#!/usr/bin/env uriel
+
+service ./countries.properties create build run
+put base "http://localhost:4242/"
+put types uri base "data"
+each types type
+  print "importing data for " type " ..."
+  post uri base "data" type uri "./" type ".csv"
+  put query data "application/x-sql" string "select count(*) from " type
+  print "records save: " post uri base "data" uri query
+end each
+print "all done"
+print get uri base "data"
+
