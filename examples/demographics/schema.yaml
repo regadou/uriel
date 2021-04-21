@@ -91,6 +91,9 @@ language:
     name:
       type: string
       maxLength: 50
+    family:
+      type: string
+      maxLength: 100
 country_language:
   type: object
   required:

@@ -35,10 +35,10 @@ class Schema(private val sourceFile: String, private val packageName: String) {
 private class TypeDefinition(val name: String, private val definition: Map<String,Any?>, private val types: Array<String>) {
     
     fun getCode(): String {
-        val type = definition.get("type")
+        val type = definition["type"]
         if (type != null && type != "object")
             throw RuntimeException("Expected entity type to be object but found $type")
-        val properties = validateProperties(definition.get("properties"))
+        val properties = validateProperties(definition["properties"])
         if (properties == null)
             throw RuntimeException("Invalid properties definition: $properties")
         val required = getRequiredProperties(definition, properties.keys.iterator().next())
@@ -50,8 +50,9 @@ private class TypeDefinition(val name: String, private val definition: Map<Strin
         ).joinToString("\n")+"\n"
         val lines = mutableListOf<String>()
         for (key in properties.keys)
-            lines.add(INDENT+createProperty(name, key, properties.get(key)!!, key == primaryKey, types))
-        return header+lines.joinToString(",\n")+"\n): Serializable\n\n"
+            lines.add(INDENT+createProperty(name, key, properties[key]!!, key == primaryKey, types))
+        lines.add("): Serializable { }")
+        return header+lines.joinToString(",\n")+"\n\n"
     }
 
     override fun toString(): String {
@@ -106,49 +107,50 @@ private fun createProperty(entity: String, name: String, definition: Map<String,
     val relation = mutableListOf<String>()
     val type = getType(definition, types, relation)
     if (type == null)
-        throw RuntimeException("Invalid type specification for property "+name+" of entity "+entity)
+        throw RuntimeException("Invalid type specification for property $name of entity $entity")
     val parts = mutableListOf<String>()
     if (primary)
         parts.add("@Id")
-    if (!relation.isEmpty()) {
+    if (relation.isNotEmpty()) {
         for (part in relation)
             parts.add(part)
     }
     else {
-        val maxLength = definition.get("maxLength")?.toString()?.toIntOrNull()
+        val maxLength = definition["maxLength"]?.toString()?.toIntOrNull()
         if (maxLength != null)
             parts.add("@Column(name=\""+toSqlCase(name)+"\", length="+maxLength+")")
         else
             parts.add("@Column(name=\""+toSqlCase(name)+"\")")
     }
-    parts.add("var "+toPropertyCase(name)+": "+toClassCase(type))
+    val klass = toClassCase(type)
+    parts.add("var "+toPropertyCase(name)+": "+klass+" = "+getDefaultValue(klass!!))
     return parts.joinToString(" ")
 }
 
 private fun getType(definition: Map<String,Any?>, types: Array<String>, relation: MutableList<String>): String? {
-    val value: String? = definition.get("type")?.toString() ?: definition.get("\$ref")?.toString()
+    val value: String? = definition["type"]?.toString() ?: definition["\$ref"]?.toString()
     if (value == null)
         return logTypeError("Missing type key and \$ref key")
     val parts = value.split("/")
     val type = parts[parts.size-1].replace("#", "")
     val isEntity = types.contains(type)
-    var javaName = TYPES_MAPPING.get(type)?.simpleName ?: if (isEntity) type else null
+    var javaName = TYPES_MAPPING[type]?.simpleName ?: if (isEntity) type else null
     if (javaName == null)
-        return logTypeError("Cannot find java type for "+type)
+        return logTypeError("Cannot find java type for $type")
     if (javaName == "String") {
-        val format = TYPES_MAPPING.get(definition.get("format")?.toString())?.simpleName
+        val format = TYPES_MAPPING[definition["format"]?.toString()]?.simpleName
         return format ?: javaName
     }
     if (javaName == "List" || javaName == "Set") {
-        val item = definition.get("items")?.toString()
+        val item = definition["items"]?.toString()
         if (item == null)
-            return logTypeError("Missing items key for type "+javaName)
-        val itemType = TYPES_MAPPING.get(item)?.simpleName ?: if (types.contains(item)) toClassCase(item) else null
+            return logTypeError("Missing items key for type $javaName")
+        val itemType = TYPES_MAPPING[item]?.simpleName ?: if (types.contains(item)) toClassCase(item) else null
         if (itemType == null)
-            return logTypeError("Cannot find java type for item type "+item)
-        javaName += "<"+itemType+">"
+            return logTypeError("Cannot find java type for item type $item")
+        javaName += "<$itemType>"
     }
-    val relationType = definition.get("relation")?.toString() ?: if (isEntity) "many-one" else DEFAULT_RELATION.get(javaName.split("<")[0])
+    val relationType = definition["relation"]?.toString() ?: if (isEntity) "many-one" else DEFAULT_RELATION[javaName.split("<")[0]]
     if (relationType == null) //TODO: check for other constraints like min and max values or ...
         return javaName
     when (relationType) {
@@ -156,48 +158,9 @@ private fun getType(definition: Map<String,Any?>, types: Array<String>, relation
         "one-many" -> relation.add("@OneToMany")
         "many-one" -> relation.add("@ManyToOne")
         "many-many" -> relation.add("@ManyToMany")
-        else -> return logTypeError("Invalid relation value: "+relationType)
+        else -> return logTypeError("Invalid relation value: $relationType")
     }
     return javaName
-}
-
-private fun toClassCase(txt: String?): String? {
-    if (txt == null || txt.isEmpty())
-        return null
-    val parts = txt.split("_").toTypedArray()
-    for (i in 0..parts.size-1)
-        parts[i] = parts[i].substring(0, 1).toUpperCase()+parts[i].substring(1)
-    return parts.joinToString("")
-}
-
-private fun toPropertyCase(txt: String?): String? {
-    if (txt == null || txt.isEmpty())
-        return null
-    val parts = txt.split("_").toTypedArray()
-    for (i in 0..parts.size-1)
-        parts[i] = if (i == 0) parts[i].toLowerCase() else parts[i].substring(0, 1).toUpperCase()+parts[i].substring(1)
-    return parts.joinToString("")
-}
-
-private fun toSqlCase(txt: String?): String? {
-    if (txt == null || txt.isEmpty())
-        return null
-    if (txt.split("_").size > 1)
-        return txt.toLowerCase()
-    val parts = mutableListOf<String>()
-    var start: Int? = null
-    for (i in 0..txt.length-1) {
-        val c = txt.get(i)
-        if (c >= 'A' && c <= 'Z') {
-            if (start != null)
-                parts.add(txt.substring(start, i).toLowerCase())
-            start = i
-        }
-    }
-    if (start == null)
-        return txt.toLowerCase()
-    parts.add(txt.substring(start, txt.length).toLowerCase())
-    return parts.joinToString("_")
 }
 
 private fun logTypeError(message: String): String? {
@@ -205,14 +168,41 @@ private fun logTypeError(message: String): String? {
     return null
 }
 
+private fun getDefaultValue(type: String): String {
+    return when(type.split('<')[0]) {
+        "Float", "Double", "Number" -> "0.0"
+        "Long" -> "0L"
+        "Int", "Short", "Byte" -> "0"
+        "Boolean" -> "false"
+        "String" -> "\"\""
+        "Date" -> "Date(0)"
+        "Time" -> "Time(0)"
+        "Timestamp" -> "Timestamp(0)"
+        "File" -> "File(\"\")"
+        "URI" -> "URI(\"http://localhost\")"
+        "URL" -> "URL(\"http://localhost\")"
+        "Map" -> "mapOf()"
+        "List" -> "listOf()"
+        "Set" -> "setOf()"
+        else -> "$type()"
+    }
+}
+
 private val LOGGER = Logger.getLogger("Schema")
-private val INDENT = "  "
+private const val INDENT = "  "
 private val TYPES_MAPPING = mapOf(
-    "number" to Double::class,
-    "integer" to Long::class,
+    "number" to Number::class,
+    "double" to Double::class,
+    "float" to Float::class,
+    "long" to Long::class,
+    "integer" to Integer::class,
+    "int" to Integer::class,
+    "short" to Short::class,
+    "byte" to Byte::class,
     "boolean" to Boolean::class,
     "string" to String::class,
     "char" to String::class,
+    "varchar" to String::class,
     "text" to String::class,
     "date" to java.sql.Date::class,
     "time" to java.sql.Time::class,

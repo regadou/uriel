@@ -18,21 +18,10 @@ fun execute(value: Any?): Any? {
 
 class Expression() {
 
-    val tokens: List<Any?> //TODO: function might be in the middle depending on syntax and params size
-        get() = if (function != null) listOf(function, *params) else listOf(*params)
-
-    fun execute(): Any? {
-        if (function != null)
-            return (function as UFunction).execute(*params)
-        return SIMPLIFY.execute(*params)
-    }
-
-    override fun toString(): String {
-        return toString(tokens)
-    }
-
     internal var function: UFunction? = null
     internal var params: Array<Any?> = arrayOf<Any?>()
+    val tokens: List<Any?> //TODO: function might be in the middle depending on syntax and params size
+        get() { return if (function != null) listOf(function, *params) else listOf(*params) }
 
     constructor(f: UFunction?, p: Array<Any?>): this() {
         function = f
@@ -49,6 +38,16 @@ class Expression() {
             function = EVAL
         }
         params = paramsList.toTypedArray()
+    }
+
+    fun execute(): Any? {
+        if (function != null)
+            return (function as UFunction).execute(*params)
+        return SIMPLIFY.execute(*params)
+    }
+
+    override fun toString(): String {
+        return toString(tokens)
     }
 }
 
@@ -93,6 +92,8 @@ private fun compileTokens(status: ParsingStatus, params: MutableList<Any?>): UFu
         else if (token is UFunction) {
             if (params.isEmpty() && function == null)
                 function = token
+            else if (token == function && token.parameters == null)
+                break
             else {
                 val subParams = mutableListOf<Any?>()
                 val subFunction = compileTokens(status, subParams)

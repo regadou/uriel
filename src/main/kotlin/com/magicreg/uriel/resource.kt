@@ -253,47 +253,24 @@ fun httpRequest(method: String, uri: URI, data: Any? = null, headers: Properties
             .build().send(request.build(), HttpResponse.BodyHandlers.ofInputStream())
 }
 
-fun initContext() {
-    CURRENT_CONTEXT.set(null)
+fun initVariables(map: Map<String,Any?>? = null) {
+    CURRENT_VARIABLES.set(null)
+    if (map != null && map.isNotEmpty())
+        getVariables().putAll(map)
 }
 
 class Resource(private val src: Any?) {
 
     val uri: URI? = detectUri(src)
-    val type: String?
-        get() = getMimetype()
     private var mimetype: String? = null
-
-    private fun getMimetype(): String? {
-        if (mimetype == null) {
-            if (uri == null)
-                return null
-            if (uri.scheme == null)
-                mimetype = "text/x-uriel"
-            else if (uri.scheme == "data")
-                mimetype = DATA_SERIALIZER.unserialize(uri.toString()).mimeType
-            else if (uri.scheme == "http" || uri.scheme == "https")
-                return DEFAULT_HTTP_RESPONSE_MIMETYPE
-            else if (SUPPORTED_SCHEMES.indexOf(uri.scheme) >= 0) {
-                val parts = uri.toString().split("#")[0].split("?")[0].split("/")
-                val last = parts[parts.size-1]
-                val dot = last.lastIndexOf('.')
-                if (dot > 0)
-                    mimetype = EXTENSIONS_MAP[last.substring(dot+1).toLowerCase()] ?: DEFAULT_FILE_MIMETYPE
-                else if (uri.scheme == "file")
-                    mimetype = if (getFile(uri).isDirectory) "inode/directory" else DEFAULT_FILE_MIMETYPE
-            }
-            if (mimetype == null)
-                mimetype = DEFAULT_MIMETYPE
-        }
-        return mimetype
-    }
+    val type: String?
+        get() { return getMimetype() }
 
     fun getData(): Any? {
         if (uri == null)
             return null
         if (uri.scheme == null) {
-            var value: Any? = getContext()
+            var value: Any? = getVariables()
             val path = uri.path.split("/")
             for (key in path) {
                 value = getValue(value, key)
@@ -330,7 +307,7 @@ class Resource(private val src: Any?) {
         if (uri == null)
             return writeLog("not supported uri: $src")
         if (uri.scheme == null) {
-            var value: Any? = getContext()
+            var value: Any? = getVariables()
             val path = uri.path.split("/")
             for (p in 0 until path.size-1) {
                 value = getValue(value, path[p])
@@ -362,7 +339,7 @@ class Resource(private val src: Any?) {
         if (uri == null)
             return writeLog("not supported uri: $src")
         if (uri.scheme == null) {
-            var value: Any? = getContext()
+            var value: Any? = getVariables()
             val path = uri.path.split("/")
             for (key in path) {
                 value = getValue(value, key)
@@ -383,7 +360,7 @@ class Resource(private val src: Any?) {
         if (uri == null)
             return writeLog("not supported uri: $src")
         if (uri.scheme == null) {
-            var value: Any? = getContext()
+            var value: Any? = getVariables()
             val path = uri.path.split("/")
             for (p in 0 until path.size-1) {
                 value = getValue(value, path[p])
@@ -406,14 +383,39 @@ class Resource(private val src: Any?) {
         return uri?.toString() ?: src?.toString() ?: "data:application/json,null"
     }
 
+    private fun getMimetype(): String? {
+        if (mimetype == null) {
+            if (uri == null)
+                return null
+            if (uri.scheme == null)
+                mimetype = "text/x-uriel"
+            else if (uri.scheme == "data")
+                mimetype = DATA_SERIALIZER.unserialize(uri.toString()).mimeType
+            else if (uri.scheme == "http" || uri.scheme == "https")
+                return DEFAULT_HTTP_RESPONSE_MIMETYPE
+            else if (SUPPORTED_SCHEMES.indexOf(uri.scheme) >= 0) {
+                val parts = uri.toString().split("#")[0].split("?")[0].split("/")
+                val last = parts[parts.size-1]
+                val dot = last.lastIndexOf('.')
+                if (dot > 0)
+                    mimetype = EXTENSIONS_MAP[last.substring(dot+1).toLowerCase()] ?: DEFAULT_FILE_MIMETYPE
+                else if (uri.scheme == "file")
+                    mimetype = if (getFile(uri).isDirectory) "inode/directory" else DEFAULT_FILE_MIMETYPE
+            }
+            if (mimetype == null)
+                mimetype = DEFAULT_MIMETYPE
+        }
+        return mimetype
+    }
+
     private fun setMimetype(response: HttpResponse<*>) {
         mimetype = response.headers().firstValue("content-type").orElse(DEFAULT_HTTP_RESPONSE_MIMETYPE)
     }
 }
 
-private class Context(): LinkedHashMap<String,Any?>() {}
+private class Variables(): LinkedHashMap<String,Any?>() {}
 private val LOGGER = Logger.getLogger("Resource")
-private val CURRENT_CONTEXT = ThreadLocal<Context>()
+private val CURRENT_VARIABLES = ThreadLocal<Variables>()
 private val SIZE_KEYS = "size,length,count".split(",")
 private val JSON = configureMapper(ObjectMapper())
 private val YAML = configureMapper(ObjectMapper(YAMLFactory()))
@@ -855,13 +857,13 @@ private fun deleteFile(file: File): Boolean {
     return file.delete()
 }
 
-private fun getContext(): Context {
-    var cx = CURRENT_CONTEXT.get()
-    if (cx == null) {
-        cx = Context()
-        CURRENT_CONTEXT.set(cx)
+private fun getVariables(): Variables {
+    var variables = CURRENT_VARIABLES.get()
+    if (variables == null) {
+        variables = Variables()
+        CURRENT_VARIABLES.set(variables)
     }
-    return cx;
+    return variables
 }
 
 private fun writeLog(msg: String): Boolean {

@@ -10,13 +10,25 @@ import java.util.logging.Logger
 import org.w3c.dom.Document
 import org.w3c.dom.Element
 
-class Service {
+class Service() {
 
     private val urielProperties = Properties()
     private val quarkusProperties = initQuarkusProperties()
-    
+    val name: String
+        get() { return getProperty("name") ?: hashCode().toString() }
+
+    constructor(properties: Map<Any?,Any?>): this() {
+        for (key in properties.keys) {
+            if (key == null)
+                continue
+            val value = properties[key]
+            if (value != null)
+                setProperty(key.toString(), value.toString())
+        }
+    }
+
     fun getProperty(name: String): String? {
-        return urielProperties.getProperty(name)
+        return urielProperties.getProperty(name) ?: quarkusProperties.getProperty(name)
     }
     
     fun setProperty(name: String, value: String) {
@@ -26,7 +38,7 @@ class Service {
         }
         if (name == "database") {
             if (!value.startsWith("jdbc:"))
-                throw RuntimeException("Invalid database url "+value)
+                throw RuntimeException("Invalid database url $value")
             val vendor = value.split(":")[1]
             quarkusProperties.setProperty("quarkus.datasource.jdbc.url", value)
             if (JDBC_VENDORS.contains(vendor))
@@ -59,13 +71,13 @@ class Service {
         else {
             val file = File(serviceName)
             if (!file.exists())
-                LOGGER.info("Service "+serviceName+" has not been created")
-            else if (!file.isDirectory())
-                LOGGER.info("File "+serviceName+" is not a folder")
-            else if (Resource("./"+serviceName).delete())
-                LOGGER.info("Service "+serviceName+" has been successfully deleted")
+                LOGGER.info("Service $serviceName has not been created")
+            else if (!file.isDirectory)
+                LOGGER.info("File $serviceName is not a folder")
+            else if (Resource("./$serviceName").delete())
+                LOGGER.info("Service $serviceName has been successfully deleted")
             else
-                LOGGER.info("Service "+serviceName+" could not be deleted")
+                LOGGER.info("Service $serviceName could not be deleted")
         }
     }
 
@@ -79,41 +91,41 @@ class Service {
         val schemaFile = urielProperties.getProperty("schema")
         val groupId = urielProperties.getProperty("group")
         val serviceName = urielProperties.getProperty("name")
-        val packageName = firstNonEmpty(urielProperties.getProperty("package"), groupId+"."+serviceName)
+        val packageName = firstNonEmpty(urielProperties.getProperty("package"), "$groupId.$serviceName")
         val currentFolder = System.getProperty("user.dir")
-        val projectFolder = currentFolder+"/"+serviceName
+        val projectFolder = "$currentFolder/$serviceName"
         val packageFolder = projectFolder+"/src/main/kotlin/"+packageName.split(".").joinToString("/")
 
-        LOGGER.info("Loading schema file "+schemaFile+" ...")
+        LOGGER.info("Loading schema file $schemaFile ...")
         val schema = Schema(schemaFile, packageName).getCode()
 
-        LOGGER.info("Creating project folder "+projectFolder+" ...")
+        LOGGER.info("Creating project folder $projectFolder ...")
         createService(groupId, serviceName, packageName)
-        Resource(projectFolder+"/src/test/kotlin").delete()
-        Resource(projectFolder+"/src/main/resources/META-INF").delete()
-        Resource(packageFolder+"/resteasyjackson").delete()
-        Resource(packageFolder+"/schema.kt").putData(schema)
+        Resource("$projectFolder/src/test/kotlin").delete()
+        Resource("$projectFolder/src/main/resources/META-INF").delete()
+        Resource("$packageFolder/resteasyjackson").delete()
+        Resource("$packageFolder/schema.kt").putData(schema)
 
         quarkusProperties.setProperty("uriel.document.root", firstNonEmpty(urielProperties.getProperty("document.root"), "./"))
         quarkusProperties.setProperty("uriel.shutdown.path", urielProperties.getProperty("shutdown.path") ?: "")
         for (op in Operation.values())
             quarkusProperties.setProperty("uriel.allow."+op.name.toLowerCase(), operations.contains(op).toString())
-        Resource(projectFolder+"/src/main/resources/application.properties").putData(quarkusProperties)
+        Resource("$projectFolder/src/main/resources/application.properties").putData(quarkusProperties)
 
         LOGGER.info("Copying kotlin source files ...")
         val dataPath = urielProperties.getProperty("data.path")
         for (filename in KOTLIN_RESOURCES)
             copyResource(filename, packageFolder, packageName, dataPath)
 
-        LOGGER.info("Service "+serviceName+" has been successfully created")
+        LOGGER.info("Service $serviceName has been successfully created")
     }
 
     fun build() {
-        runScript("build") 
+        runScript("build", true)
     }
 
     fun run() {
-        runScript("run") 
+        runScript("run", false)
     }
 
     fun deploy() {
@@ -121,7 +133,7 @@ class Service {
     }
 
     override fun toString(): String {
-        return "service "+urielProperties.getProperty("name")
+        return "service $name"
     }
 
     private fun createService(groupId: String, serviceName: String, packageName: String) {
@@ -140,24 +152,24 @@ class Service {
         val command = arrayOf(
             "mvn",
             "io.quarkus:quarkus-maven-plugin:1.12.2.Final:create",
-            "-DprojectGroupId="+groupId,
-            "-DprojectArtifactId="+serviceName,
-            "-DprojectVersion="+version,
+            "-DprojectGroupId=$groupId",
+            "-DprojectArtifactId=$serviceName",
+            "-DprojectVersion=$version",
             "-Dextensions="+extensions.joinToString(","),
-            "-DclassName="+packageName+".controller"
+            "-DclassName=$packageName.controller"
         )
         val status = runtime.exec(command, null, null).waitFor()
         if (status != 0)
-            throw RuntimeException("Project "+serviceName+" creation terminated with status "+status)
+            throw RuntimeException("Project $serviceName creation terminated with status $status")
 
         val servicePath = "./$serviceName"
         val pom = Resource("$servicePath/pom.xml")
         val doc = pom.getData() as Document
-        val nodes = doc.getElementsByTagName("project").item(0).getChildNodes()
-        for (i in 0..nodes.getLength()-1) {
+        val nodes = doc.getElementsByTagName("project").item(0).childNodes
+        for (i in 0 until nodes.length) {
             val node = nodes.item(i)
             if (node is Element) {
-                if (node.getTagName().toLowerCase() == "dependencies") {
+                if (node.tagName.toLowerCase() == "dependencies") {
                     for (dependency in POM_DEPENDENCIES)
                         node.appendChild(createDependency(doc, dependency))
                 }
@@ -168,24 +180,29 @@ class Service {
         Resource("$servicePath/build.sh").putData(BUILD_SCRIPT)
         runtime.exec("chmod 755 $servicePath/build.sh", null, null).waitFor()
         val debugPort = firstNonEmpty(urielProperties.getProperty("debug"), DEFAULT_DEBUG_PORT)
-        val runScript = RUN_SCRIPT.replace("$(app)", serviceName+"-"+version)
+        val runScript = RUN_SCRIPT.replace("$(app)", "$serviceName-$version")
                                   .replace("$(port)", debugPort)
         Resource("$servicePath/run.sh").putData(runScript)
         runtime.exec("chmod 755 $servicePath/run.sh", null, null).waitFor()
     }
 
-    private fun runScript(scriptName: String) {
-        LOGGER.info("Executing the "+scriptName+" service script ...")
+    private fun runScript(scriptName: String, waitfor: Boolean) {
+        LOGGER.info("Executing the $scriptName service script ...")
         val serviceName = urielProperties.getProperty("name")
         if (serviceName == null)
             LOGGER.info("Service name has not been configured")
         val script = File.createTempFile("uriel-$scriptName-", ".sh")
-        Resource(script).putData("cd "+serviceName+"\n./"+scriptName+".sh")
-        val status = Runtime.getRuntime().exec("sh "+script, null, null).waitFor()
-        if (status != 0)
-            throw RuntimeException("Service "+serviceName+" "+scriptName+" terminated with status "+status)
+        Resource(script).putData("cd $serviceName\n./$scriptName.sh")
+        val process = Runtime.getRuntime().exec("sh $script", null, null)
+        if (waitfor) {
+            val status = process.waitFor()
+            if (status != 0)
+                throw RuntimeException("Service $serviceName $scriptName terminated with status $status")
+            else
+                LOGGER.info("Service $serviceName $scriptName has been successful")
+        }
         else
-            LOGGER.info("Service "+serviceName+" "+scriptName+" has been successful")
+            LOGGER.info("Service $serviceName $scriptName running in the background ...")
     }
 }
 
@@ -207,7 +224,7 @@ private val JDBC_DRIVERS = mapOf(
     "sqlserver"  to "com.microsoft.sqlserver.jdbc.SQLServerDriver",
     "sqlite"     to "org.sqlite.JDBC"
 )
-private val KOTLIN_RESOURCES = "controller,entity,expression,resource,converter,function".split(",")
+private val KOTLIN_RESOURCES = "controller,converter,entity,expression,function,resource,utils".split(",")
 private val DEPENDENCY_NODES = "groupId,artifactId,version".split(",")
 private val POM_DEPENDENCIES = arrayOf(
     "com.fasterxml.jackson.dataformat,jackson-dataformat-yaml,2.11.1",
@@ -216,8 +233,8 @@ private val POM_DEPENDENCIES = arrayOf(
     "org.jsoup,jsoup,1.11.3",
     "eu.maxschuster,dataurl,2.0.0"
 )
-private val BUILD_SCRIPT = "#!/bin/sh\n./mvnw package $@\n"
-private val RUN_SCRIPT = """#!/bin/bash
+private const val BUILD_SCRIPT = "#!/bin/sh\n./mvnw package $@\n"
+private const val RUN_SCRIPT = """#!/bin/bash
 FOLDER=$(dirname $(readlink -f "$0"))
 if [ "${'$'}1" = "debug" ]; then
     DEBUG="-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=$(port)"
@@ -230,12 +247,13 @@ else
     echo "Application is not compiled or you are in the wrong directory"
 fi
 """
-private val DEFAULT_DEBUG_PORT = "7777"
+private const val DEFAULT_DEBUG_PORT = "7777"
 
 private fun initQuarkusProperties(): Properties {
     val properties = Properties()
     properties.load(StringReader(getInternalResource("/application.properties")))
     properties.setProperty("quarkus.hibernate-orm.database.generation", "update")
+    properties.setProperty("quarkus.log.console.enable", "true")
     return properties
 }
 
@@ -244,7 +262,7 @@ private fun firstNonEmpty(vararg values: String?): String {
         if (value == null)
             continue
         val trimmed = value.trim()
-        if (!trimmed.isEmpty())
+        if (trimmed.isNotEmpty())
             return trimmed
     }
     return ""
@@ -254,10 +272,10 @@ private fun assertValidOperations(properties: Properties): List<Operation> {
     val invalids = mutableSetOf<String>()
     val operations = properties.getProperty("operations")!!.toString().trim().split(",")
                                 .map { getOperation(it, invalids) }
-                                .filter {it != null}
+                                .filterNotNull()
                                 .map { it!! }
-    if (!invalids.isEmpty())
-        throw RuntimeException("Invalid operations: "+invalids)
+    if (invalids.isNotEmpty())
+        throw RuntimeException("Invalid operations: $invalids")
     return operations
 }
 
@@ -273,7 +291,7 @@ private fun getOperation(name: String, invalids: MutableCollection<String>? = nu
 private fun createDependency(doc: Document, dependency: String): Element {
     val parts = dependency.split(",")
     val dep = doc.createElement("dependency")
-    for (d in 0..DEPENDENCY_NODES.size-1) {
+    for (d in DEPENDENCY_NODES.indices) {
         val node = doc.createElement(DEPENDENCY_NODES[d])
         node.appendChild(doc.createTextNode(parts[d]))
         dep.appendChild(node)
@@ -303,25 +321,16 @@ private fun createExtensionsMap(): String {
     reader.close()
     val lines = mutableListOf<String>()
     for (key in map.keys)
-        lines.add("\""+key+"\" to \""+map.get(key)+"\"")
+        lines.add("\""+key+"\" to \""+ map[key] +"\"")
     lines.sort()
     return lines.joinToString(",\n    ")
 }
 
 private fun copyResource(filename: String, packageFolder: String, packageName: String, dataPath: String) {
-    val file = "/"+filename+".kt"
+    val file = "/$filename.kt"
     var txt = getInternalResource(file).replace("com.magicreg.uriel", packageName)
     if (filename == "controller")
         txt = txt.replace("$(path)", dataPath)
                  .replace("$(extensions)", createExtensionsMap())
-    Resource(packageFolder+"/controller.kt").putData(txt)
-}
-
-private fun getInternalResource(path: String): String {
-    val input = object {}.javaClass.getResourceAsStream(path)
-    if (input == null)
-        throw RuntimeException("Cannot open internal resource: "+path)
-    val txt = InputStreamReader(input).readText()
-    input.close()
-    return txt
+    Resource(packageFolder+file).putData(txt)
 }

@@ -7,6 +7,14 @@ fun getFunction(name: String): UFunction? {
     return FUNCTIONS[name]
 }
 
+fun addFunction(function: UFunction): Boolean {
+    val name = function.name
+    if (FUNCTIONS[name] != null)
+        return false
+    FUNCTIONS[name] = function
+    return true
+}
+
 interface UFunction {
 
     val name: String
@@ -103,30 +111,6 @@ val DELETE = Action("delete", 1) { params ->
         res.delete()
     else
         false
-}
-
-val SERVICE = Action("service", null) { params ->
-    val src = if (params.isEmpty()) null else getResource(params[0])
-    val service = if (src is Resource && src.type != null) Service() else null     
-    if (service != null) {
-        val properties = toMap((src as Resource).getData())
-        for (key in properties.keys)
-            service.setProperty(toString(key), toString(properties.get(key)))
-        for (p in 1 until params.size) {
-            when (val action = getKey(params[p])) {
-                "validate" -> validateConfig(service)
-                "delete" -> service.delete()
-                "create" -> service.create()
-                "build" -> service.build()
-                "run" -> service.run()
-                "deploy" -> service.deploy()
-                else -> LOGGER.info("Invalid service action: $action")
-            }
-        }
-    }
-    else if (src != null)
-        LOGGER.info("Not a supported resource type: $src")
-    service
 }
 
 val URI = Type("uri", null) { params ->
@@ -335,10 +319,10 @@ val END = Bloc("end") { params ->
 private val LOGGER = Logger.getLogger("Function")
 private val FUNCTIONS = initFunctions()
 
-private fun initFunctions(): Map<String,UFunction> {
+private fun initFunctions(): MutableMap<String,UFunction> {
     val map = mutableMapOf<String,UFunction>()
     for (f in arrayOf<UFunction>(
-        GET, PUT, POST, DELETE, SERVICE, PRINT, EVAL, SIMPLIFY, EXIT,
+        GET, PUT, POST, DELETE, PRINT, EVAL, SIMPLIFY, EXIT,
         URI, DATA, TEXT, LIST, SET, MAP, NUMBER, INTEGER, BOOLEAN, DATE,
         ADD, EQUAL, LESS, MORE, AND, OR, NOT,
         EACH, END
@@ -352,7 +336,7 @@ private fun executeItems(items: Array<Any?>): Array<Any?> {
     return Array<Any?>(items.size) { execute(items[it]) }
 }
 
-private fun getResource(value: Any?): Any? {
+internal fun getResource(value: Any?): Any? {
     if (value is Expression)
         return getResource(value.execute())
     if (value == null || value is Resource)
@@ -367,7 +351,7 @@ private fun getResource(value: Any?): Any? {
     return value
 }
 
-private fun getKey(src: Any?): String {
+internal fun getKey(src: Any?): String {
     if (src is Resource) {
         if (src.uri != null && src.uri.scheme == null)
             return src.uri.path
@@ -382,14 +366,6 @@ private fun getKey(src: Any?): String {
     if (src is CharSequence)
         return src.toString()
     return toString(src)
-}
-
-private fun validateConfig(service: Service) {
-    val missing = service.validate()
-    if (missing.isEmpty())
-        println("Service configuration is valid")
-    else
-        println("Missing or empty properties in service configuration: "+missing.joinToString(" "))
 }
 
 private fun compare(v1: Any?, v2: Any?): Int {

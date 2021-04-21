@@ -2,16 +2,18 @@ package com.magicreg.uriel
 
 import java.util.Properties
 import javax.enterprise.context.ApplicationScoped
+import javax.inject.Inject
 import javax.persistence.EntityManager
+import javax.persistence.Tuple
 import javax.persistence.metamodel.EntityType
 import javax.transaction.Transactional
 import org.apache.commons.beanutils.BeanMap
 
-class Entity(src: Any?): MutableMap<String,Any?> {
-    lateinit private var map: MutableMap<String,Any?>
+class EntityWrapper(src: Any?): MutableMap<String,Any?> {
+    private var map: MutableMap<String,Any?>
     init {
         if (src is Map<*,*>)
-            map = src as Map<String,Any?>
+            map = src as MutableMap<String,Any?>
         else if (src == null)
             map = LinkedHashMap<String,Any?>()
         else {
@@ -22,67 +24,67 @@ class Entity(src: Any?): MutableMap<String,Any?> {
     }
 
     val bean: Any?
-        get() = if (map is BeanMap) map.getBean() else null
+        get() { return if (map is BeanMap) (map as BeanMap).bean else null }
 
-    val entries: MutableSet<MutableEntry<String, V>>
-        get() = map.entries
+    override val entries: MutableSet<MutableMap.MutableEntry<String,Any?>>
+        get() { return map.entries }
 
-    val keys: MutableSet<String>
+    override val keys: MutableSet<String>
         get() = map.keys
 
-    val size: Int
-        get() = map.size
+    override val size: Int
+        get() { return map.size }
 
-    val values: MutableCollection<Any?>
-        get() = map.values
+    override val values: MutableCollection<Any?>
+        get() { return map.values }
 
-    fun clear() {
-        if (!(map is BeanMap))
+    override fun clear() {
+        if (map !is BeanMap)
             map.clear()
     }
 
-    fun containsKey(key: String): Boolean {
+    override fun containsKey(key: String): Boolean {
         return map.containsKey(key)
     }
 
-    fun containsValue(value: Any?): Boolean {
+    override fun containsValue(value: Any?): Boolean {
         return map.containsValue(value)
     }
 
-    operator fun get(key: String): Any? {
-        return map.get(key)
+    override operator fun get(key: String): Any? {
+        return map[key]
     }
 
-    fun getOrDefault(key: String, defaultValue: Any?): Any? {
+    override fun getOrDefault(key: String, defaultValue: Any?): Any? {
         if (map.containsKey(key))
-            return map.get(key)
+            return map[key]
         return defaultValue
     }
 
-    fun isEmpty(): Boolean {
+    override fun isEmpty(): Boolean {
         return map.isEmpty()
     }
 
-    fun put(key: String, value: Any?): Any? {
-        val v = if (map is BeanMap) convert(v, map.getType(key).kotlin) else value
+    override fun put(key: String, value: Any?): Any? {
+        val v = if (map is BeanMap) convert(value, (map as BeanMap).getType(key).kotlin) else value
         return map.put(key, v)        
     }
 
-    fun putAll(from: Map<out String, Any?>) {
+    override fun putAll(from: Map<out String, Any?>) {
         for (key in from.keys)
-            map.put(key, from.get(key))
+            map[key] = from[key]
     }
 
-    fun remove(key: String): Any? {
-        if (!(map is BeanMap))
+    override fun remove(key: String): Any? {
+        if (map !is BeanMap)
             return map.remove(key)
         return null
     }
 
-    fun remove(key: String, value: Any?): Boolean {
-        if (!(map is BeanMap))
+    override fun remove(key: String, value: Any?): Boolean {
+        if (map !is BeanMap)
             return map.remove(key, value)
-        return null        
+        return false
     }
 }
 
@@ -102,18 +104,20 @@ class EntityFactory @Inject constructor(private var manager: EntityManager) {
     }
     val types: Collection<String> = entityMap.keys
     
-    fun getProperties(type: String): Properties
+    fun getProperties(type: String): Properties {
         val entity = entityMap.get(type)
         val properties = Properties()
-        for (att in entity.getAttributes())
-            properties.put(att.getName(), att.getJavaType().getName())
+        if (entity != null) {
+            for (att in entity.getAttributes())
+                properties[att.getName()] = att.getJavaType().getSimpleName().toLowerCase()
+        }
         return properties
     }
     
     fun getIdProperty(type: String): String? {
         val entity = entityMap.get(type)
         if (entity != null)
-            return  entity.getId(entity.getJavaType()).getName()
+            return  entity.getId(entity.getIdType().getJavaType()).getName()
         return null
     }
     
@@ -121,7 +125,7 @@ class EntityFactory @Inject constructor(private var manager: EntityManager) {
         val key = getIdProperty(type)
         if (key == null)
             return null
-        return TypeDefinition(entity).get(key)
+        return EntityWrapper(entity)[key]
     }
 
     fun getEntities(query: Map<Any?,Any?>): List<Any> {
@@ -129,104 +133,127 @@ class EntityFactory @Inject constructor(private var manager: EntityManager) {
     }
     
     fun getEntity(type: String, id: Any): Any {
-        return database.find(entity.getJavaType(), id)
+        return manager.find(getJavaType(type), id)
     }
 
     @Transactional
     fun saveEntity(entity: Any, type: String): Any? {
-        val javaType = type.getJavaType()
+        val javaType = getJavaType(type)
         if (javaType.isInstance(entity)) {
-            database.persist(entity)
+            manager.persist(entity)
             return entity
         }
         val bean = javaType.getDeclaredConstructor().newInstance()
         val map = BeanMap(bean)
-        map.putAll(TypeDefinition(entity))
-        database.persist(bean)
+        map.putAll(EntityWrapper(entity))
+        manager.persist(bean)
         return bean
     }
     
     @Transactional
     fun deleteEntity(type: String, id: Any): Boolean {
-        val instance: Any? = database.find(type.getJavaType(), id)
+        val instance: Any? = manager.find(getJavaType(type), id)
         if (instance == null)
-            false
-        database.remove(instance)
+            return false
+        manager.remove(instance)
         return true
     }
 
     fun textQuery(query: String, type: QueryType): Any {
-        if (type == QueryType.SQL) {
-            val q = manager.createNativeQuery(query)
-            if (query.toLowerCase().startsWith("select"))
-                return query.getResultList()
-            return query.executeUpdate()
-        }
-        if (type == QueryType.JPQL) {
-            val q = manager.createQuery(query)
-            if (query.toLowerCase().startsWith("select"))
-                return query.getResultList()
-            return query.executeUpdate()
-        }
-        if (type == QueryType.MAP) {
-            val mimetype = detectMimetype(query.trim())
-            if (mimetype != null) {
-                val entity = reduceCollection(readData(query, mimetype))
-                if (entity is Map<*,*>)
-                    return dataQuery(entity as Map<Any?,Any?>)
-                throw RuntimeException("Invalid type for MaP query: "+entity::class.simpleName)
+        when (type) {
+            QueryType.SQL -> {
+                if (query.toLowerCase().startsWith("select")) {
+                    return manager.createNativeQuery(query, Tuple::class.java)
+                            .getResultList().map { getMap(it) }
+                }
+                return manager.createNativeQuery(query).executeUpdate()
             }
-            throw RuntimeException("Cannot detect text mimetype: "+query)
+            QueryType.JPQL -> {
+                val q = manager.createQuery(query)
+                if (query.toLowerCase().startsWith("select"))
+                    return q.getResultList()
+                return q.executeUpdate()
+            }
+            QueryType.MAP -> {
+                val mimetype = detectMimetype(query.trim())
+                if (mimetype == null)
+                    throw RuntimeException("Cannot detect text mimetype: $query")
+                val entity = reduceCollection(readData(query, mimetype))
+                if (entity is Map<*, *>)
+                    return dataQuery(entity as Map<Any?, Any?>)
+                throw RuntimeException("Invalid type for MAP query: " + entity!!::class.simpleName)
+            }
+            QueryType.URIEL -> return Expression(query).execute() ?: Expression()
+            QueryType.TEXT -> throw RuntimeException("TEXT query type is not implemented yet")
+            else -> throw RuntimeException("Configuration problem for query type $type")
         }
-        throw RuntimeException("Unsupported query type: "+type)
+    }
+
+    private fun dataQuery(query: Map<Any?,Any?>): List<Any> {
+        if (query.isEmpty())
+            return listOf<Any>()
+        val type = getClassType(query["@type"], entityMap)
+        if (type != null) {
+            if (query.size == 2 && query.containsKey("@id")) {
+                val id = query["@id"]
+                val entity: Any? = if (id == null) null else manager.find(type, id)
+                if (entity == null)
+                    return listOf<Any>()
+                return listOf(entity)
+            }
+            return executeQuery(manager, type, query)
+        }
+        val results = mutableListOf<Any>()
+        for (entity in entityMap.values) {
+            if (entityHasAllProperties(entity, query.keys))
+                results.addAll(executeQuery(manager, entity.getJavaType(), query))
+        }
+        return results
+    }
+
+    private fun getJavaType(type: String): Class<Any> {
+        return entityMap[type]?.javaType ?: Any::class.java
     }
 }
 
-private var DEFAULT_FACTORY: EntityFactory = null
+private var DEFAULT_FACTORY: EntityFactory? = null
 
-private fun getBean(value: Any?): BeanMap? {
-    if (value is Collection<*> || value is Array<*> || value is CharSequence || value is Number || value is Boolean
-                               || value is java.io.File || value is java.net.URI || value is java.net.URL)
-        return null
-    val map = BeanMap(src)
+private fun getBean(value: Any?): MutableMap<String,Any?> {
+    if (value is Collection<*>) {
+        val map = mutableMapOf<String,Any?>("size" to value.size)
+        val it = value.iterator()
+        for (i in value.indices)
+            map[i.toString()] = it.next()
+        return map
+    }
+    if (value is Array<*>) {
+        val map = mutableMapOf<String,Any?>("size" to value.size)
+        for (i in value.indices)
+            map[i.toString()] = value[i]
+        return map
+    }
+    if (value is CharSequence || value is Number || value is Boolean
+                             || value is java.io.File || value is java.net.URI || value is java.net.URL)
+        return mutableMapOf<String,Any?>("value" to value)
+    val map = BeanMap(value)
     if (map.isEmpty())
-        return null
-    return map
+        return mutableMapOf<String,Any?>("value" to value)
+    return map as MutableMap<String,Any?>
 }
 
-private fun dataQuery(query: Map<Any?,Any?>): List<Any> {
-    if (query.isEmpty())
-        return listOf<Any>()
-    val type = getClassType(query.remove("@type"), entityMap)
-    if (type != null) {
-        if (query.size == 1 && "@id".equals(query.keys.iterator().next())) {
-            val id = query.values.iterator().next()
-            val entity: Any? = if (id == null) null else database.find(type, id)
-            if (entity == null)
-                return listOf<Any>()
-            return listOf(entity), mimetype)
-        }
-        return executeQuery(database, type, query)
-    }
-    val results = mutableListOf<Any>()
-    for (entity in entityMap.values) {
-        if (entityHasAllProperties(entity, query.keys))
-            results.addAll(executeQuery(database, entity.getJavaType(), query))
-    }
-    return results
-}
-
-private fun executeQuery(database: EntityManager, type: Class<Any>, query: Map<Any?,Any?>): List<Any> {
+private fun executeQuery(manager: EntityManager, type: Class<Any>, query: Map<Any?,Any?>): List<Any> {
     val where = mutableListOf<String>()
     val params = mutableListOf<Any?>()
     for (key in query.keys) {
-        val value = normalize(query.get(key))
+        if (key == "@type")
+            continue
+        val value = normalize(query[key])
         if (value is Collection<*>) {
             params.add(value)
             where.add("x."+key+" in (?"+params.size+")")
         }
         else if (value == null)
-            where.add("x."+key+" is null")
+            where.add("x.$key is null")
         else {
             params.add(value)
             where.add("x."+key+" = ?"+params.size)
@@ -234,21 +261,21 @@ private fun executeQuery(database: EntityManager, type: Class<Any>, query: Map<A
     }
     val condition = if (where.isEmpty()) "" else " where "+where.joinToString(" and ")
     val jpql = "select x from "+type.simpleName+" x "+condition
-    val typedQuery = database.createQuery(jpql, type)
+    val typedQuery = manager.createQuery(jpql, type)
     for (p in 1..params.size)
-        typedQuery.setParameter(p, params.get(p-1))
+        typedQuery.setParameter(p, params[p-1])
     return typedQuery.getResultList()
 }
 
 private fun getClassType(name: Any?, entityMap: Map<String,EntityType<Any>>): Class<Any>? {
     if (name == null)
         return null
-    return entityMap.get(name.toString())?.getJavaType()
+    return entityMap[name.toString()]?.getJavaType()
 }
 
-private fun entityHasAllProperties(entity: EntityType<Any>, keys: Collection<String>): Boolean {
+private fun entityHasAllProperties(entity: EntityType<Any>, keys: Collection<Any?>): Boolean {
     for (key in keys) {
-        try { entity.getAttribute(key) }
+        try { entity.getAttribute(key.toString()) }
         catch (e: Throwable) { return false }
     }
     return true
@@ -257,7 +284,7 @@ private fun entityHasAllProperties(entity: EntityType<Any>, keys: Collection<Str
 private fun normalize(value: Any?): Any? {
     if (value == null || value is Number || value is Boolean || value is java.util.Date)
         return value
-    if (value is CharSequence || value is File || value is URI || value is URL)
+    if (value is CharSequence || value is java.io.File || value is java.net.URI || value is java.net.URL)
         return value.toString()
     if (value is Array<*>)
         return if (value.size == 0) null else listOf(*value)
@@ -284,4 +311,20 @@ private fun reduceCollection(value: Any?): Any? {
         }
     }
     return value
+}
+
+private fun getMap(src: Any?): Map<String,Any?> {
+    if (src is Map<*,*>)
+        return src as Map<String,Any?>
+    if (src is Tuple) {
+        val map = mutableMapOf<String, Any?>()
+        for (e in src.getElements()) {
+            val name = e.getAlias()
+            map[toPropertyCase(name)] = src.get(name)
+        }
+        return map
+    }
+    if (src == null)
+        return mutableMapOf<String, Any?>()
+    return BeanMap(src)as Map<String,Any?>
 }

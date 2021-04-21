@@ -9,6 +9,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.util.logging.Logger
 import javax.enterprise.context.ApplicationScoped
+import org.eclipse.microprofile.config.inject.ConfigProperty
 
 @QuarkusMain
 class Main {
@@ -23,8 +24,12 @@ class Main {
 @ApplicationScoped
 class Application(): QuarkusApplication {
 
+    @ConfigProperty(name = "uriel.service.print.actions")
+    val printActions: Boolean = false
+
     override fun run(vararg args: String): Int {
-        if (args.size > 0) {
+        addFunction(Action("service", null) { params -> runService(params, printActions) })
+        if (args.isNotEmpty()) {
             try {
                 execute(Expression(args.joinToString(" ")))
                 return 0
@@ -57,6 +62,10 @@ class Application(): QuarkusApplication {
     }
 }
 
+private val LOGGER = Logger.getLogger("Main")
+private val SERVICE_ACTIONS = arrayOf("validate", "delete", "create", "build", "run", "deploy")
+private val SERVICE_ACTIONS_EXECUTED = arrayOf("validated", "deleted", "created", "built", "running", "deployed")
+
 private fun checkDebug(args: Array<String>): Array<String> {
     if (args.isNotEmpty() && args[0] == "debug") {
         println("*** press enter after starting the debugger ***")
@@ -75,4 +84,46 @@ private fun logError(e: Throwable): Int {
     return 1
 }
 
-private val LOGGER = Logger.getLogger("Main")
+private fun validateConfig(service: Service) {
+    val missing = service.validate()
+    if (missing.isEmpty())
+        println("Service configuration is valid")
+    else
+        println("Missing or empty properties in service configuration: "+missing.joinToString(" "))
+}
+
+private fun runService(params: Array<Any?>, printActions: Boolean): Service? {
+    val src = if (params.isEmpty()) null else getResource(params[0])
+    if (src !is Resource || src.type == null) {
+        LOGGER.info("Not a supported resource type: $src")
+        return null
+    }
+    val service = Service(toMap((src as Resource).getData()))
+    for (p in 1 until params.size) {
+        val action = getKey(params[p]).toLowerCase()
+        val index = SERVICE_ACTIONS.indexOf(action)
+        if (index >= 0) {
+            if (printActions)
+                println("$action service "+service.name+" ...")
+            when (action) {
+                "validate" -> validateConfig(service)
+                "delete" -> service.delete()
+                "create" -> service.create()
+                "build" -> service.build()
+                "run" -> service.run()
+                "deploy" -> service.deploy()
+                else -> throw RuntimeException("Configuration problem for action $action")
+            }
+            if (printActions)
+                println("service "+service.name+" "+SERVICE_ACTIONS_EXECUTED[index])
+        }
+        else {
+            val msg = "Invalid service action: $action"
+            LOGGER.info(msg)
+            if (printActions)
+                println(msg)
+        }
+    }
+    return service
+}
+

@@ -2,12 +2,10 @@ package com.magicreg.uriel
 
 import java.io.File
 import java.io.FileInputStream
-import java.io.InputStreamReader
+import java.io.InputStream
 import java.net.URI
-import java.net.URL
 import java.net.URLEncoder
 import java.util.Comparator
-import java.util.Locale
 import java.util.Properties
 import java.util.StringTokenizer
 import java.util.logging.Logger
@@ -23,8 +21,8 @@ import javax.ws.rs.Produces
 import javax.ws.rs.WebApplicationException
 import javax.ws.rs.core.Context
 import javax.ws.rs.core.MediaType
-import javax.ws.rs.core.MultivaluedMap
 import javax.ws.rs.core.Response
+import kotlin.system.exitProcess
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.resteasy.spi.HttpRequest
 
@@ -134,7 +132,7 @@ class DataController @Inject constructor(private var factory: EntityFactory) {
         for (instance in instances) {
             if (instance != null) {
                 val entity = factory.saveEntity(instance, type)
-                results.add(factory.getIdValue(entity)!!)
+                results.add(factory.getIdValue(entity, type)!!)
             }
         }
         return results
@@ -164,8 +162,7 @@ class DataController @Inject constructor(private var factory: EntityFactory) {
         if (factory.types.indexOf(type) < 0)
             throw WebApplicationException(Response.Status.NOT_FOUND)
         val idkey = factory.getIdProperty(type)
-        data.put(idkey, id)
-        val entity = factory.saveEntity(data, type)
+        val entity = factory.saveEntity(setIdValue(data, idkey!!, id), type)
         if (entity == null)
             throw WebApplicationException(Response.Status.CONFLICT)
         return entity
@@ -184,7 +181,7 @@ class DataController @Inject constructor(private var factory: EntityFactory) {
         throw WebApplicationException(Response.Status.NOT_FOUND)
     }
 
-    private fun getQueryType(inputType: String, query: String? = null): QueryType {
+    private fun getQueryType(inputType: String, query: String? = null): QueryType? {
         val queryType: QueryType? = when (inputType) {
             "application/x-sql" -> if (allowSql) QueryType.SQL else null
             "application/x-jpql" -> if (allowJpql) QueryType.JPQL else null
@@ -200,8 +197,7 @@ class DataController @Inject constructor(private var factory: EntityFactory) {
             return queryType // statement check was not desired
         if (queryType == QueryType.URIEL)
             return validateUrielQuery(query)
-        val statement = StringTokenizer(query).nextToken().toLowerCase()
-        val allowedStatement = when (statement) {
+        val allowedStatement = when (StringTokenizer(query).nextToken().toLowerCase()) {
             "select" -> allowSelect
             "insert" -> allowInsert
             "update" -> allowUpdate
@@ -221,6 +217,7 @@ class DataController @Inject constructor(private var factory: EntityFactory) {
                 "post" -> allowInsert
                 "put" -> allowInsert && allowUpdate
                 "delete" -> allowDelete
+                else -> throw WebApplicationException(Response.Status.BAD_REQUEST)
             }
             if (!allowedStatement)
                 throw WebApplicationException(Response.Status.FORBIDDEN)
@@ -231,16 +228,29 @@ class DataController @Inject constructor(private var factory: EntityFactory) {
 
 private fun getMap(src: Any?): Map<Any?,Any?> {
     return when (src) {
-        is Collection<*> -> mergeCollection(src as Collection<Any?, mapOf<Any?,Any?>())
-        is Array<*> -> mergeCollection(listOf<Any?>(*src), mapOf<Any?,Any?>())
+        is Collection<*> -> mergeCollection(src as Collection<Any?>, mutableMapOf<Any?,Any?>())
+        is Array<*> -> mergeCollection(listOf<Any?>(*src), mutableMapOf<Any?,Any?>())
         is Map<*,*> -> src as Map<Any?,Any?>
         else -> throw WebApplicationException(Response.Status.BAD_REQUEST)
     }
 }
 
-private fun mergeCollection(src: Collection<Any?>, map: Map<Any?,Any?>): Map<Any?,Any?> {
+private fun mergeCollection(src: Collection<Any?>, map: MutableMap<Any?,Any?>): MutableMap<Any?,Any?> {
     for (item in src)
         map.putAll(getMap(item))
+    return map
+}
+
+private fun setIdValue(src: Map<String,Any?>, key: String, value: Any?): Map<String,Any?> {
+    if (src[key] == value)
+        return src
+    if (src is MutableMap<String,Any?>) {
+        src[key] = value
+        return src
+    }
+    val map = mutableMapOf<String,Any?>()
+    map.putAll(src)
+    map[key] = value
     return map
 }
 
@@ -249,6 +259,8 @@ private fun getContentType(request: HttpRequest): String {
 }
 
 private fun sendResponse(data: Any?, type: String): Response {
+    if (data is InputStream)
+        return Response.ok(data, type).build()
     return Response.ok(printData(data, type), type).build()
 }
 
@@ -263,9 +275,9 @@ private fun getIndexFile(folder: File): File? {
     var indexFile: File? = null
     var priority: Int = INDEX_TYPES.size
     for (file in folder.listFiles()) {
-        if (file.isDirectory())
+        if (file.isDirectory)
             continue
-        if (file.getName().toLowerCase().startsWith("index.")) {
+        if (file.name.toLowerCase().startsWith("index.")) {
             val index = INDEX_TYPES.indexOf(getFileType(file))
             if (index >= 0 && index < priority) {
                 indexFile = file
@@ -281,7 +293,7 @@ private fun listFolderFiles(folder: File, type: String, documentRoot: String): R
     val files = mutableListOf<Map<String,Any?>>()
     for (file in sortFiles(folder.listFiles())) {
         files.add(mapOf<String,Any?>(
-            "name" to if (html) getLink(file, documentRoot) else file.getName(),
+            "name" to if (html) getLink(file, documentRoot) else file.name,
             "size" to file.length(),
             "date" to java.sql.Timestamp(file.lastModified()),
             "type" to getFileType(file),
@@ -295,6 +307,7 @@ private fun listFolderFiles(folder: File, type: String, documentRoot: String): R
 private fun sendFile(file: File, request: HttpRequest): Response {
     val type = getFileType(file)
     if (type == URIEL_SCRIPT) {
+        initVariables()
         val result = Expression(file.readText()).execute()
         if (result is Response)
             return result
@@ -316,15 +329,15 @@ private fun selectMimetype(request: HttpRequest, serverTypes: List<String>): Str
 
 private fun sortFiles(files: Array<File>): Array<File> {
     files.sortWith(Comparator<File>{ f1, f2 ->
-        f1.getName().toLowerCase().compareTo(f2.getName().toLowerCase())
+        f1.name.toLowerCase().compareTo(f2.name.toLowerCase())
     })
     return files
 }
 
 private fun getFileType(file: File): String {
-    if (file.isDirectory())
+    if (file.isDirectory)
         return "inode/directory"
-    val filename = file.getName()
+    val filename = file.name
     val index = filename.lastIndexOf('.')
     val ext = if (index < 1) "txt" else filename.substring(index+1).toLowerCase()
     val type = EXTENSIONS_MAP[ext]
@@ -353,7 +366,7 @@ private fun encodeUriParts(uri: String): String {
 
 private fun shutdownApp(parts: List<String>) {
     LOGGER.info("Shutting down the service ...")
-    System.exit(0)
+    exitProcess(0)
 }
 
 private val LOGGER = Logger.getLogger("Controller")
