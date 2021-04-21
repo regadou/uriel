@@ -10,12 +10,15 @@ The Uriel project aims for several goals, all revolving around expressing web re
 - natural language database query
 - vocally driven resource management
 
-The language syntax itself is based on URI tokens and HTTP verbs, with added functions for data types, comparison, logic, math and other utilities. It is a mix of prefix and infix syntax where some functions can be used like operators but all of them can be used in the prefix mode. The is no punctuation symbols (dot, comma, parenthesis, ...) aside form the double quote string delimiter. The end of line is the only expression delimiter. There is also no operator precedence. If several functions are present on a single line, the parser will create sub-expressions for each function after the first one.
+The language syntax itself is based on URI tokens and HTTP verbs, with added functions for data types, comparison, logic, math and other utilities. It is a mix of prefix and infix syntax where some functions can be used like operators but all of them can be used in the prefix mode. There is no punctuation symbols (dot, comma, parenthesis, ...) aside from the double quote string delimiter. The end of line is the only expression delimiter. There is also no operator precedence. If several functions are present on a single line, the parser will create sub-expressions for each function after the first one.
 
 To build the application: ./build.sh
+
 To build a native version: ./build.sh -Pnative
+
 To run the REPL: ./run.sh
-To create and run a new service: ./run.sh service <service-config-file> create build run
+
+To create and run a new service: ./run.sh service "config filename" create build run
 
 See examples folder for more details
 

@@ -4,4 +4,5 @@ To run the example:
 - cd to this directory
 - ./build-and-run.uriel
 - once the script is done, go to http://localhost:4242/ or http://localhost:4242/data
+- since the code is still buggy, you might want to test one by one expressions in the urile script
 
