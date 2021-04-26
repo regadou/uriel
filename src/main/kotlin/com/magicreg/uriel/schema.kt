@@ -74,7 +74,7 @@ private fun generateDefinitions(src: String): Map<String,TypeDefinition> {
 
 private fun loadSchemaFile(src: String): Map<String,Map<String,Any?>> {
     val resource = Resource(src)
-    if (resource.type == null)
+    if (resource.uri == null)
         throw RuntimeException("Cannot read schema from "+src)
     val data = resource.getData()
     if (data == null)

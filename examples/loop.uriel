@@ -1,0 +1,12 @@
+#!/usr/bin/env uriel
+
+put numbers list 12 25 42
+print "numbers are " numbers
+put total 0
+each numbers n
+    put total add total n
+    print n
+end each
+print "numbers count is " numbers/count
+print "numbers total is " total
+

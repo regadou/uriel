@@ -27,7 +27,9 @@ my,Burmese,Sino-Tibetan
 ca,Catalan,Indo-European
 ch,Chamorro,Austronesian
 ce,Chechen,"Northeast Caucasian"
-ny,"Chichewa , Chewa, Nyanja",Niger-Congo
+nx,Chichewa,Niger-Congo
+ny,Nyanja,Niger-Congo
+nz,Chewa,Niger-Congo
 zh,Chinese,Sino-Tibetan
 cv,Chuvash,Turkic
 kw,Cornish,Indo-European

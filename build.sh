@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 mvn clean
 mkdir -p target/classes

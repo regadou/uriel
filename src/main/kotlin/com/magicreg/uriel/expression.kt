@@ -1,20 +1,8 @@
 package com.magicreg.uriel
 
-fun execute(value: Any?): Any? {
-    if (value is Expression)
-        return execute(value.execute())
-    if (value is Resource)
-        return execute(value.getData())
-    if (value is java.net.URL || value is java.net.URI || value is java.io.File) {
-        val res = Resource(value)
-        if (res.type != null)
-            return execute(res.getData())
-        if (value is java.io.File)
-            return value.canonicalFile.toURI().toString()
-        return value.toString()
-    }
-    return value
-}
+import kotlin.reflect.KCallable
+import kotlin.reflect.KClass
+import kotlin.reflect.KParameter
 
 class Expression() {
 
@@ -40,10 +28,15 @@ class Expression() {
         params = paramsList.toTypedArray()
     }
 
+    constructor(target: Any, callable: String, args: Array<Any?>): this() {
+        function = findMember(target, callable, args)
+        params = arrayOf(target, *args)
+    }
+
     fun execute(): Any? {
-        if (function != null)
-            return (function as UFunction).execute(*params)
-        return SIMPLIFY.execute(*params)
+        if (function == null)
+            return simplify(listOf(*params))
+        return (function as UFunction).execute(*params)
     }
 
     override fun toString(): String {
@@ -87,17 +80,16 @@ private fun compileTokens(status: ParsingStatus, params: MutableList<Any?>): UFu
     var function: UFunction? = null
     while (status.needToken(function, params)) {
         val token = status.tokens[status.currentToken]
-        if (function != null && function.syntax == FunctionSyntax.BLOC)
+        if (function?.type == FunctionType.BLOC)
             params.add(token)
         else if (token is UFunction) {
             if (params.isEmpty() && function == null)
                 function = token
-            else if (token == function && token.parameters == null)
-                break
             else {
                 val subParams = mutableListOf<Any?>()
                 val subFunction = compileTokens(status, subParams)
                 params.add(Expression(subFunction, subParams.toTypedArray()))
+                continue
             }
         }
         else
@@ -114,7 +106,7 @@ private fun compileLines(lines: List<String>, originalParams: MutableList<Any?>)
         val txt = line.trim()
         if (txt.isNotEmpty() && txt[0] != POUND_SIGN) {
             val exp = Expression(txt)
-            if (exp.function != null && exp.function?.syntax == FunctionSyntax.BLOC) {
+            if (exp.function?.type == FunctionType.BLOC) {
                 if (exp.function?.name == "end")
                     params = closeBlocs(blocs, getFunctionName(exp.params), originalParams)
                 else {
@@ -165,18 +157,43 @@ private fun parseText(text: String): List<Any?> {
     return tokens
 }
 
+private fun findMember(target: Any, callable: String, args: Array<Any?>): UFunction {
+    val members = target::class.members.filter{it.name == callable}
+    if (members.isEmpty())
+        throw RuntimeException("No member found named '$callable' for type "+target::class.qualifiedName)
+    val selected = mutableListOf<KCallable<*>>()
+    val size = args.size + 1
+    for (member in members) {
+        if (member.parameters.size == size && isAssignable(member.parameters[0], target))
+            selected.add(member)
+    }
+    if (selected.isEmpty())
+        throw RuntimeException("Cannot find a member named '$callable' for target: $target")
+    if (selected.size == 1)
+        return Callable(selected[0])
+    return findBestMatch(selected, args)
+}
+
+private fun isAssignable(param: KParameter, target: Any): Boolean {
+    return (param.type.classifier as KClass<*>).isInstance(target)
+}
+
+private fun findBestMatch(callables: MutableList<KCallable<*>>, args: Array<Any?>): Callable {
+    return Callable(callables[0]) //TODO: create algo to find best match
+}
+
 private fun evalToken(token: String): Any? {
     return KEYWORDS.get(token)
         ?: getFunction(token)
         ?: token.toLongOrNull()
         ?: token.toDoubleOrNull()
         ?: toDate(token)
-        ?: getResource(token)
+        ?: checkResource(token)
 }
 
-private fun getResource(src: String?): Resource? {
+private fun checkResource(src: String): Resource? {
     val r = Resource(src)
-    if (r.type == null)
+    if (r.uri == null)
         return null
     return r
 }
@@ -196,7 +213,7 @@ private fun getFunctionName(params: Array<Any?>): String {
 
 private fun closeBlocs(blocs: MutableList<ExpressionParams>, function: String = "", originalParams: MutableList<Any?> = mutableListOf<Any?>()): MutableList<Any?> {
     val closing = findBloctoClose(blocs, function)
-    for (b in blocs.size-1..closing) {
+    for (b in blocs.size-1 downTo closing) {
         val bloc = blocs[b]
         val exp = Expression(bloc.function, bloc.params.toTypedArray())
         blocs.removeAt(b)
@@ -213,10 +230,27 @@ private fun closeBlocs(blocs: MutableList<ExpressionParams>, function: String = 
 private fun findBloctoClose(blocs: MutableList<ExpressionParams>, function: String): Int {
     if (function.isEmpty())
         return 0
-    for (b in blocs.size-1..0) {
+    for (b in blocs.size-1 downTo 0) {
         val f = blocs[b].function
         if (f != null && f.name == function)
             return b
     }
     throw RuntimeException("Cannot fin bloc function to close: "+function)
+}
+
+class Callable(private val callable: KCallable<*>): UFunction {
+    override val name = callable.name
+    override val type = FunctionType.COMMAND
+    override val parameters = callable.parameters.size + 1
+
+    override fun execute(vararg params: Any?): Any? {
+        val converted = Array<Any?>(params.size) {null}
+        for (i in 0 until params.size)
+            converted[i] = convert(params[i], callable.parameters[i].type.classifier as KClass<*>)
+        return callable.call(*converted)
+    }
+
+    override fun toString(): String {
+        return (callable.parameters[0].type.classifier as KClass<*>).qualifiedName + "." + name
+    }
 }

@@ -9,85 +9,6 @@ import javax.persistence.metamodel.EntityType
 import javax.transaction.Transactional
 import org.apache.commons.beanutils.BeanMap
 
-class EntityWrapper(src: Any?): MutableMap<String,Any?> {
-    private var map: MutableMap<String,Any?>
-    init {
-        if (src is Map<*,*>)
-            map = src as MutableMap<String,Any?>
-        else if (src == null)
-            map = LinkedHashMap<String,Any?>()
-        else {
-            map = getBean(src)
-            if (map == null)
-                throw RuntimeException("Invalid bean type: "+src::class.qualifiedName)
-        }
-    }
-
-    val bean: Any?
-        get() { return if (map is BeanMap) (map as BeanMap).bean else null }
-
-    override val entries: MutableSet<MutableMap.MutableEntry<String,Any?>>
-        get() { return map.entries }
-
-    override val keys: MutableSet<String>
-        get() = map.keys
-
-    override val size: Int
-        get() { return map.size }
-
-    override val values: MutableCollection<Any?>
-        get() { return map.values }
-
-    override fun clear() {
-        if (map !is BeanMap)
-            map.clear()
-    }
-
-    override fun containsKey(key: String): Boolean {
-        return map.containsKey(key)
-    }
-
-    override fun containsValue(value: Any?): Boolean {
-        return map.containsValue(value)
-    }
-
-    override operator fun get(key: String): Any? {
-        return map[key]
-    }
-
-    override fun getOrDefault(key: String, defaultValue: Any?): Any? {
-        if (map.containsKey(key))
-            return map[key]
-        return defaultValue
-    }
-
-    override fun isEmpty(): Boolean {
-        return map.isEmpty()
-    }
-
-    override fun put(key: String, value: Any?): Any? {
-        val v = if (map is BeanMap) convert(value, (map as BeanMap).getType(key).kotlin) else value
-        return map.put(key, v)        
-    }
-
-    override fun putAll(from: Map<out String, Any?>) {
-        for (key in from.keys)
-            map[key] = from[key]
-    }
-
-    override fun remove(key: String): Any? {
-        if (map !is BeanMap)
-            return map.remove(key)
-        return null
-    }
-
-    override fun remove(key: String, value: Any?): Boolean {
-        if (map !is BeanMap)
-            return map.remove(key, value)
-        return false
-    }
-}
-
 enum class QueryType {
     SQL, JPQL, URIEL, MAP, TEXT
 }
@@ -125,7 +46,7 @@ class EntityFactory @Inject constructor(private var manager: EntityManager) {
         val key = getIdProperty(type)
         if (key == null)
             return null
-        return EntityWrapper(entity)[key]
+        return getMap(entity, entityMap.get(type), manager)[key]
     }
 
     fun getEntities(query: Map<Any?,Any?>): List<Any> {
@@ -145,7 +66,7 @@ class EntityFactory @Inject constructor(private var manager: EntityManager) {
         }
         val bean = javaType.getDeclaredConstructor().newInstance()
         val map = BeanMap(bean)
-        map.putAll(EntityWrapper(entity))
+        map.putAll(getMap(entity, entityMap.get(type), manager))
         manager.persist(bean)
         return bean
     }
@@ -178,7 +99,7 @@ class EntityFactory @Inject constructor(private var manager: EntityManager) {
                 val mimetype = detectMimetype(query.trim())
                 if (mimetype == null)
                     throw RuntimeException("Cannot detect text mimetype: $query")
-                val entity = reduceCollection(readData(query, mimetype))
+                val entity = simplify(toList(readData(query, mimetype)))
                 if (entity is Map<*, *>)
                     return dataQuery(entity as Map<Any?, Any?>)
                 throw RuntimeException("Invalid type for MAP query: " + entity!!::class.simpleName)
@@ -295,36 +216,43 @@ private fun normalize(value: Any?): Any? {
     return value.toString()
 }
 
-private fun reduceCollection(value: Any?): Any? {
-    if (value is Collection<*>) {
-        return when (value.size) {
-            0 -> null
-            1 -> if (value is List<*>) value[0] else value.iterator().next()
-            else -> value
-        }
-    }
-    if (value is Array<*>) {
-        return when (value.size) {
-            0 -> null
-            1 -> value[0]
-            else -> value
-        }
-    }
-    return value
-}
-
-private fun getMap(src: Any?): Map<String,Any?> {
+private fun getMap(src: Any?, type: EntityType<Any>? = null, manager: EntityManager? = null): Map<String,Any?> {
+    var map: MutableMap<String, Any?>? = null
     if (src is Map<*,*>)
-        return src as Map<String,Any?>
-    if (src is Tuple) {
-        val map = mutableMapOf<String, Any?>()
+        map = src as MutableMap<String,Any?>
+    else if (src is Tuple) {
+        map = mutableMapOf<String, Any?>()
         for (e in src.getElements()) {
             val name = e.getAlias()
-            map[toPropertyCase(name)] = src.get(name)
+            map[name] = src.get(name)
         }
-        return map
     }
-    if (src == null)
+    else if (src == null)
         return mutableMapOf<String, Any?>()
-    return BeanMap(src)as Map<String,Any?>
+    else
+        return BeanMap(src)as Map<String,Any?>
+
+    if (type != null) {
+        for (key in map.keys) {
+            val name = toPropertyCase(key)!!
+            val att = type.getAttribute(name)
+            if (att == null || name != key) {
+                map.remove(key)
+                if (att == null)
+                    continue
+            }
+            val javaType = att.getJavaType()
+            val klass = javaType.kotlin
+            val value = map[key]
+            if (klass.isInstance(value)) {
+                if (name != key)
+                    map[name] = value
+            }
+            else if (klass.isData)
+                map[name] = manager?.find(javaType, value)
+            else
+                map[name] = convert(value, klass)
+        }
+    }
+    return map
 }

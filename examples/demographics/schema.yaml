@@ -1,27 +1,26 @@
-city:
+Language:
   type: object
   required:
-    - id
+    - code
   properties:
-    id:
-      type: integer
+    code:
+      type: string
+      maxLength: 2
     name:
       type: string
       maxLength: 50
-    country:
-      type: country
-    region:
+    family:
       type: string
-      maxLength: 50
-    population:
-      type: integer
-    longitude:
-      type: number
-    latitude:
-      type: number
-    altitude:
-      type: number
-country:
+      maxLength: 100
+Continent:
+  type: object
+  required:
+    - name
+  properties:
+    name:
+      type: string
+      maxLength: 20
+Country:
   type: object
   required:
     - code
@@ -39,7 +38,7 @@ country:
       type: string
       maxLength: 60
     continent:
-      type: continent
+      type: Continent
     surface_area:
       type: number
     independance_year:
@@ -56,54 +55,44 @@ country:
     head_of_state:
       type: string
       maxLength: 100
-    capital:
-      type: city
     languages:
         type: array
-        items: country_language
-region:
+        items: CountryLanguage
+City:
   type: object
   required:
-    - name
-    - country
+    - id
   properties:
-    name:
-      type: string
-      maxLength: 100
-    country:
-      type: country
-continent:
-  type: object
-  required:
-    - name
-  properties:
-    name:
-      type: string
-      maxLength: 20
-language:
-  type: object
-  required:
-    - code
-  properties:
-    code:
-      type: string
-      maxLength: 2
+    id:
+      type: integer
     name:
       type: string
       maxLength: 50
-    family:
+    country:
+      type: Country
+    region:
       type: string
-      maxLength: 100
-country_language:
+      maxLength: 50
+    population:
+      type: integer
+    longitude:
+      type: number
+    latitude:
+      type: number
+    altitude:
+      type: number
+    capital:
+      type: boolean
+CountryLanguage:
   type: object
   required:
     - country
     - language
   properties:
     country:
-      type: country
+      type: Country
     language:
-      type: language
+      type: Language
     official:
       type: boolean
     percentage:

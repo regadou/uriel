@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 FOLDER=$(dirname $(readlink -f "$0"))
 if [ "$1" = "debug" ]; then

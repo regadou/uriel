@@ -27,11 +27,16 @@ class Application(): QuarkusApplication {
     @ConfigProperty(name = "uriel.service.print.actions")
     val printActions: Boolean = false
 
+    @ConfigProperty(name = "uriel.service.print.script.result")
+    val printScriptResult: Boolean = false
+
     override fun run(vararg args: String): Int {
         addFunction(Action("service", null) { params -> runService(params, printActions) })
         if (args.isNotEmpty()) {
             try {
-                execute(Expression(args.joinToString(" ")))
+                val result = execute(Expression(args.joinToString(" ")))
+                if (printScriptResult && result != null)
+                    println(toString(result))
                 return 0
             }
             catch (e: Throwable) { return logError(e) }
@@ -66,15 +71,6 @@ private val LOGGER = Logger.getLogger("Main")
 private val SERVICE_ACTIONS = arrayOf("validate", "delete", "create", "build", "run", "deploy")
 private val SERVICE_ACTIONS_EXECUTED = arrayOf("validated", "deleted", "created", "built", "running", "deployed")
 
-private fun checkDebug(args: Array<String>): Array<String> {
-    if (args.isNotEmpty() && args[0] == "debug") {
-        println("*** press enter after starting the debugger ***")
-        BufferedReader(InputStreamReader(System.`in`)).readLine()
-        return listOf(*args).subList(1, args.size).toTypedArray()
-    }
-    return args
-}
-
 private fun logError(e: Throwable): Int {
     val writer = StringWriter()
     e.printStackTrace(PrintWriter(writer, true))
@@ -94,7 +90,7 @@ private fun validateConfig(service: Service) {
 
 private fun runService(params: Array<Any?>, printActions: Boolean): Service? {
     val src = if (params.isEmpty()) null else getResource(params[0])
-    if (src !is Resource || src.type == null) {
+    if (src !is Resource || src.uri == null) {
         LOGGER.info("Not a supported resource type: $src")
         return null
     }

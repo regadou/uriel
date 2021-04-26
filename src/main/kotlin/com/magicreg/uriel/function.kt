@@ -16,22 +16,21 @@ fun addFunction(function: UFunction): Boolean {
 }
 
 interface UFunction {
-
     val name: String
-    val syntax: FunctionSyntax
+    val type: FunctionType
     val parameters: Int?
     fun execute(vararg params: Any?): Any?
 }
 
-enum class FunctionSyntax {
-    BLOC, COMMAND, INFIX, LOGIC, MODIFIER
+enum class FunctionType {
+    BLOC, COMMAND, STATE, LOGIC, RELATION, QUALIFIER
 }
 
 open class BaseFunction(
-    override val name: String,
-    override val syntax: FunctionSyntax,
-    override val parameters: Int?,
-    private val function: (Array<Any?>) -> Any?
+        override val name: String,
+        override val type: FunctionType,
+        override val parameters: Int?,
+        private val function: (Array<Any?>) -> Any?
 ): UFunction {
     override fun execute(vararg params: Any?): Any? {
         return function(params as Array<Any?>)
@@ -44,106 +43,96 @@ open class BaseFunction(
 class Bloc(
         name: String,
         function: (Array<Any?>) -> Any?
-): BaseFunction(name, FunctionSyntax.BLOC, null, function) {}
+): BaseFunction(name, FunctionType.BLOC, null, function) {}
 
 class Action(
         name: String,
         parameters: Int?,
         function: (Array<Any?>) -> Any?
-): BaseFunction(name, FunctionSyntax.COMMAND, parameters, function) {}
+): BaseFunction(name, FunctionType.COMMAND, parameters, function) {}
 
 class Type(
     name: String,
     parameters: Int?,
     function: (Array<Any?>) -> Any?
-): BaseFunction(name, FunctionSyntax.COMMAND, parameters, function) {}
+): BaseFunction(name, FunctionType.COMMAND, parameters, function) {}
+
+class State(
+        name: String,
+        function: (Array<Any?>) -> Any?
+): BaseFunction(name, FunctionType.STATE, 2, function) {}
 
 class Relation(
-    name: String,
-    function: (Array<Any?>) -> Any?
-): BaseFunction(name, FunctionSyntax.INFIX, 2, function) {}
+        name: String,
+        function: (Array<Any?>) -> Any?
+): BaseFunction(name, FunctionType.RELATION, 2, function) {}
 
 class Conjunction(
     name: String,
     function: (Array<Any?>) -> Any?
-): BaseFunction(name, FunctionSyntax.LOGIC, 2, function) {}
+): BaseFunction(name, FunctionType.LOGIC, 2, function) {}
 
 class Unary(
     name: String,
     function: (Array<Any?>) -> Any?
-): BaseFunction(name, FunctionSyntax.MODIFIER, 1, function) {}
+): BaseFunction(name, FunctionType.QUALIFIER, 1, function) {}
 
-val GET = Action("get", null) { params ->
-    var value: Any? = null
-    for (param in params) {
-        if (value != null) {
-            value = getValue(execute(value), getKey(param))
-            if (value == null)
-                break
-            continue
-        }
-        value = getResource(param)
-        if (value == null)
-            break
-    }
-    value
+val GET = Action("get", 1) { params ->
+    if (params.isEmpty()) null else getResource(params[0])
 }
 
 val PUT = Action("put", 2) { params ->
-    val res = if (params.isEmpty()) null else getResource(params[0])
-    if (res is Resource)
-        res.putData(if (params.size < 2) null else execute(params[1]))
-    res
+    val target = if (params.isEmpty()) null else getResource(params[0])
+    if (target is Resource)
+        target.putData(if (params.size < 2) null else params[1])
+    target
 }
 
 val POST = Action("post", 2) { params ->
-    val res = if (params.isEmpty()) null else getResource(params[0])
-    if (res is Resource)
-        res.postData(if (params.size < 2) null else execute(params[1]))
-    else
-        postValue(res, execute(params[1]))
-    res
+    val target = if (params.isEmpty()) null else getResource(params[0])
+    val values = if (params.size < 2) listOf<Any?>(null) else listOf<Any?>(*params).subList(1, params.size)
+    var result: Any? = null
+    for (value in values) {
+        if (target is Resource)
+            result = target.postData(value)
+        else if (postValue(target, execute(value)))
+            result = getValue(target, "last")
+    }
+    result
 }
 
 val DELETE = Action("delete", 1) { params ->
-    val res = if (params.isEmpty()) null else getResource(params[0])
-    if (res is Resource)
-        res.delete()
+    val target = if (params.isEmpty()) null else getResource(params[0])
+    if (target is Resource)
+        target.delete()
     else
         false
 }
 
-val URI = Type("uri", null) { params ->
-    val buffer = StringBuilder()
+val URI = Type("uri", 1) { params ->
+    if (params.isEmpty()) null else Resource(toString(execute(params[0])))
+}
+
+val DATA = Type("data", 2) { params ->
+    var values = mutableListOf<Any?>()
+    var mimetype: String? = null
+    var base64 = false
     for (param in params) {
-        val txt = toString(execute(param))
-        if (txt.isEmpty())
-            continue
-        if (buffer.isNotEmpty() && !buffer.endsWith("/") && !txt.startsWith("/"))
-            buffer.append("/")
-        buffer.append(txt)
-    }
-    Resource(buffer.toString())
-}
-
-val DATA = Type("data", null) { params ->
-    val value = if (params.isEmpty()) null else execute(params[0])
-    val mimetype = if (params.size > 1) toString(execute(params[1])) else "text/plain"
-    createDataUri(value, mimetype)
-}
-
-val TEXT = Type("text", null) { params ->
-    if (params.size == 2) {
-        val first = execute(params[0])
-        val second = execute(params[1])
-        val type: String? = if (second is CharSequence) second.toString() else null
-        if (type != null && isMimetype(type))
-            printData(first, type)
+        val value = execute(param)
+        if (mimetype == null && value is CharSequence && isMimetype(value.toString()))
+            mimetype = value.toString()
+        else if (value == "base64")
+            base64 = true
         else
-            toString(first) + toString(second)
+            values.add(value)
     }
-    else
-        params.joinToString("") { toString(execute(it)) }
+    if (mimetype == null)
+        mimetype = "text/plain"
+    createDataUri(simplify(values), mimetype, base64)
+}
+
+val TEXT = Type("text", 1) { params ->
+    if (params.isEmpty()) "" else toString(execute(params[0]))
 }
 
 val LIST = Type("list", null) { params ->
@@ -154,12 +143,12 @@ val SET = Type("set", null) { params ->
     mutableSetOf<Any?>(*executeItems(params))
 }
 
-val MAP = Type("map", null) { params ->
+val ENTITY = Type("entity", null) { params ->
     val map = mutableMapOf<String,Any?>()
     var key: String? = null
     for (param in params) {
         if (key == null)
-            key = toString(execute(param))
+            key = getKey(param)
         else {
             map[key] = execute(param)
             key = null
@@ -172,6 +161,10 @@ val MAP = Type("map", null) { params ->
 
 val NUMBER = Type("number", 1) { params ->
     if (params.isEmpty()) 0 else toNumber(execute(params[0]))
+}
+
+val REAL = Type("real", 1) { params ->
+    if (params.isEmpty()) 0 else toDouble(execute(params[0]))
 }
 
 val INTEGER = Type("integer", 1) { params ->
@@ -190,8 +183,27 @@ val DATE = Type("date", null) { params ->
 }
 
 val PRINT = Action("print", null) { params ->
-    println(TEXT.execute(*params))
+    println(params.map { toString(execute(it)) }.joinToString(""))
     null
+}
+
+val SHELL = Action("shell", null) { params ->
+    val cmd = params.map { toString(execute(it)) }.joinToString("")
+    Runtime.getRuntime().exec(cmd, null, null).waitFor()
+    //TODO: redirect stdout to caller that can use it as a resource
+}
+
+val CALL = Action("call", null) { params ->
+    var result: Any? = null
+    if (params.size > 1) {
+        val target = execute(params[0])
+        if (target != null) {
+            val callable = getKey(params[1])
+            val args = listOf(*params).subList(2, params.size).toTypedArray()
+            result = execute(Expression(target, callable, args))
+        }
+    }
+    result
 }
 
 val EXIT = Action("exit", 1) { params ->
@@ -207,20 +219,12 @@ val EXIT = Action("exit", 1) { params ->
 }
 
 val EVAL = Action("eval", 1) { params ->
-    if (params.isEmpty())
-        null
-    else {
-        val param = params[0]
-        execute(if (param is CharSequence) Expression(param.toString()) else param)
+    var result: Any? = null
+    for (param in params) {
+        val exp = if (param is CharSequence) Expression(param.toString()) else param
+        result = execute(exp)
     }
-}
-
-val SIMPLIFY = Action("simplify", null) { params ->
-    when(params.size) {
-        0 -> null
-        1 -> params[0] //TODO: check if value is array or collection and could be empty or first element null
-        else -> listOf(*params)
-    }
+    result
 }
 
 val ADD = Action("add", null) { params ->
@@ -313,7 +317,38 @@ val EACH = Bloc("each") { params ->
 }
 
 val END = Bloc("end") { params ->
-    if (params.isEmpty()) "" else params[0]?.toString() ?: ""
+    throw RuntimeException("End function calld with "+params.joinToString(" "))
+}
+
+val IS = State("is") { params ->
+    when (params.size) {
+        0 -> false
+        1 -> checkState(execute(params[0]), true)
+        else -> checkState(execute(params[0]), execute(params[1]))
+    }
+}
+
+val HAS = State("has") { params ->
+    val keep = mutableListOf<Any?>()
+    if (params.isNotEmpty()) {
+        val parent = toCollection(execute(params[0]))
+        val condition = if (params.size > 2) Expression(AND, params) else params[1]
+    }
+    keep
+}
+
+val OF = Relation("of") { params ->
+    var value: Any? = null
+    for (p in params.size-1 downTo 0) {
+        val param = execute(params[p])
+        if (value == null)
+            value = param
+        else
+            value = getValue(value, toString(param))
+        if (value == null)
+            break
+    }
+    value
 }
 
 private val LOGGER = Logger.getLogger("Function")
@@ -322,13 +357,21 @@ private val FUNCTIONS = initFunctions()
 private fun initFunctions(): MutableMap<String,UFunction> {
     val map = mutableMapOf<String,UFunction>()
     for (f in arrayOf<UFunction>(
-        GET, PUT, POST, DELETE, PRINT, EVAL, SIMPLIFY, EXIT,
-        URI, DATA, TEXT, LIST, SET, MAP, NUMBER, INTEGER, BOOLEAN, DATE,
-        ADD, EQUAL, LESS, MORE, AND, OR, NOT,
-        EACH, END
+        GET, PUT, POST, DELETE, IS, HAS, PRINT, ADD,
+        URI, DATA, TEXT, NUMBER, REAL, INTEGER, BOOLEAN, DATE, LIST, SET, ENTITY,
+        EQUAL, LESS, MORE, AND, OR, NOT, OF, // IN, AT, FROM, TO
+        EVAL, SHELL, CALL, EXIT, EACH, END
     )) {
         map[f.name] = f
     }
+    map["lesser"] = LESS
+    map["greater"] = MORE
+    map["<"] = LESS
+    map[">"] = MORE
+    map["="] = EQUAL
+    map["that"] = HAS
+    map["with"] = HAS
+    map["sum"] = ADD
     return map
 }
 
@@ -336,7 +379,7 @@ private fun executeItems(items: Array<Any?>): Array<Any?> {
     return Array<Any?>(items.size) { execute(items[it]) }
 }
 
-internal fun getResource(value: Any?): Any? {
+fun getResource(value: Any?): Any? {
     if (value is Expression)
         return getResource(value.execute())
     if (value == null || value is Resource)
@@ -345,13 +388,13 @@ internal fun getResource(value: Any?): Any? {
         return Resource(value)
     if (value is CharSequence) {
         val r = Resource(value)
-        if (r.type != null)
+        if (r.uri != null)
             return r
     }
     return value
 }
 
-internal fun getKey(src: Any?): String {
+fun getKey(src: Any?): String {
     if (src is Resource) {
         if (src.uri != null && src.uri.scheme == null)
             return src.uri.path
@@ -366,6 +409,14 @@ internal fun getKey(src: Any?): String {
     if (src is CharSequence)
         return src.toString()
     return toString(src)
+}
+
+private fun evalExpression(value: Any?): Any? {
+    if (value is Expression)
+        return evalExpression(value.execute())
+    if (value is java.net.URL || value is java.net.URI || value is java.io.File)
+        return Resource(value)
+    return value
 }
 
 private fun compare(v1: Any?, v2: Any?): Int {
@@ -390,4 +441,8 @@ private fun compare(v1: Any?, v2: Any?): Int {
     if (v1 is Number || v2 is Number || v1 is Boolean || v2 is Boolean)
         return toDouble(v1).compareTo(toDouble(v2))
     return toString(v1).compareTo(toString(v2))
+}
+
+private fun checkState(parent: Any?, value: Any?): Boolean {
+    return false //TODO: implement IS function in here
 }

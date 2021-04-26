@@ -280,9 +280,10 @@ fun toResource(value: Any?): Resource {
     if (value is URI || value is URL || value is File)
         return Resource(value)
     if (value is CharSequence) {
-        val res = Resource(createDataUri(value, "text/plain"))
-        if (res.type != null)
+        val res = Resource(value)
+        if (res.uri != null)
             return res
+        return Resource(createDataUri(value, "text/plain"))
     }
     return Resource(createDataUri(value, "application/json"))
 }

@@ -116,6 +116,7 @@ class Service() {
         val dataPath = urielProperties.getProperty("data.path")
         for (filename in KOTLIN_RESOURCES)
             copyResource(filename, packageFolder, packageName, dataPath)
+        Resource(packageFolder+"/main.kt").putData("package $packageName\n$MAIN_CODE")
 
         LOGGER.info("Service $serviceName has been successfully created")
     }
@@ -227,14 +228,28 @@ private val JDBC_DRIVERS = mapOf(
 private val KOTLIN_RESOURCES = "controller,converter,entity,expression,function,resource,utils".split(",")
 private val DEPENDENCY_NODES = "groupId,artifactId,version".split(",")
 private val POM_DEPENDENCIES = arrayOf(
+    "org.jetbrains.kotlin,kotlin-reflect,\${kotlin.version}",
     "com.fasterxml.jackson.dataformat,jackson-dataformat-yaml,2.11.1",
     "commons-beanutils,commons-beanutils,1.9.1",
     "org.apache.commons,commons-csv,1.5",
     "org.jsoup,jsoup,1.11.3",
     "eu.maxschuster,dataurl,2.0.0"
 )
+private const val MAIN_CODE = """
+import io.quarkus.runtime.Quarkus
+import io.quarkus.runtime.annotations.QuarkusMain
+@QuarkusMain
+class Main {
+    companion object {
+        @JvmStatic
+        fun main(vararg args: String) {
+            Quarkus.run(*checkDebug(args as Array<String>))
+        }
+    }
+}
+"""
 private const val BUILD_SCRIPT = "#!/bin/sh\n./mvnw package $@\n"
-private const val RUN_SCRIPT = """#!/bin/bash
+private const val RUN_SCRIPT = """#!/bin/sh
 FOLDER=$(dirname $(readlink -f "$0"))
 if [ "${'$'}1" = "debug" ]; then
     DEBUG="-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=$(port)"

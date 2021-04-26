@@ -40,11 +40,36 @@ import org.w3c.dom.Node
 import java.util.*
 import kotlin.collections.LinkedHashMap
 
+fun readData(input: InputStream, type: String): Any? {
+    if (EXTENSIONS_MAP.values.indexOf(type) < 0)
+        throw RuntimeException("Unsupported media type: $type")
+    return decode(type, input)
+}
+
+fun readData(input: String, type: String): Any? {
+    if (EXTENSIONS_MAP.values.indexOf(type) < 0)
+        throw RuntimeException("Unsupported media type: $type")
+    return decode(type, ByteArrayInputStream(input.toByteArray(DEFAULT_CHARSET)))
+}
+
+fun printData(data: Any?, type: String): String {
+    if (EXTENSIONS_MAP.values.indexOf(type) < 0)
+        throw RuntimeException("Unsupported media type: $type")
+    return encode(type, data)
+}
+ 
+fun createDataUri(value: Any?, mimetype: String = "text/plain", base64: Boolean = false): String {
+    val bytes = encode(mimetype, value)
+    val header = "data:$mimetype;charset=$DEFAULT_CHARSET"
+    if (base64)
+        return "$header;base64,"+BASE64_ENCODER.encodeToString(bytes.toByteArray(DEFAULT_CHARSET))
+    return "$header,"+urlencode(bytes)
+}
+
 fun isMimetype(src: String): Boolean {
     val parts = src.split("/")
-    if (parts.size == 2)
-        return TOP_LEVEL_TYPES.contains(parts[0])
-    //TODO: maybe check the second part for known value or starts with x-
+    if (parts.size == 2 && TOP_LEVEL_TYPES.contains(parts[0]))
+        return validSubtype(parts[1])
     return false
 }
 
@@ -59,8 +84,8 @@ fun detectMimetype(text: String): String? {
         return "application/xml"
     }
     if ( (trimmed.startsWith("{") && trimmed.endsWith("}"))
-      || (trimmed.startsWith("[") && trimmed.endsWith("]"))
-      || (trimmed.startsWith("\"") && trimmed.endsWith("\"")) )
+            || (trimmed.startsWith("[") && trimmed.endsWith("]"))
+            || (trimmed.startsWith("\"") && trimmed.endsWith("\"")) )
         return "application/json"
     val lines = trimmed.split("\n")
     if (lines.size == 1) {
@@ -115,144 +140,6 @@ fun detectMimetype(text: String): String? {
     return null
 }
 
-fun readData(input: InputStream, type: String): Any? {
-    if (EXTENSIONS_MAP.values.indexOf(type) < 0)
-        throw RuntimeException("Unsupported media type: $type")
-    return decode(type, input)
-}
-
-fun readData(input: String, type: String): Any? {
-    if (EXTENSIONS_MAP.values.indexOf(type) < 0)
-        throw RuntimeException("Unsupported media type: $type")
-    return decode(type, ByteArrayInputStream(input.toByteArray()))
-}
-
-fun printData(data: Any?, type: String): String {
-    if (EXTENSIONS_MAP.values.indexOf(type) < 0)
-        throw RuntimeException("Unsupported media type: $type")
-    return encode(type, data)
-}
- 
-fun createDataUri(value: Any?, mimetype: String = "text/plain", base64: Boolean = false): String {
-    val bytes = encode(mimetype, value)
-    val header = "data:$mimetype;charset=$DEFAULT_CHARSET"
-    if (base64)
-        return "$header;base64,"+BASE64_ENCODER.encodeToString(bytes.toByteArray(DEFAULT_CHARSET))
-    return "$header,"+URLEncoder.encode(bytes, DEFAULT_CHARSET)
-}
-
-fun getValue(parent: Any?, key: String): Any? {
-    if (key == "type")
-        return if (parent == null) Any::class else parent::class
-    if (parent is Map<*,*>)
-        return parent[key]
-    if (parent is Collection<*>) {
-        if (SIZE_KEYS.contains(key))
-            return parent.size
-        val index = key.toIntOrNull()
-        if (index == null || index < 0 || index >= parent.size)
-            return null
-        if (parent is List<*>)
-            return parent[index]
-        val it = parent.iterator()
-        for (i in 0 until index)
-            it.next()
-        return it.next()
-    }
-    if (parent is Array<*>)
-        return getValue(listOf<Any?>(*parent), key)
-    if (parent is CharSequence) {
-        if (SIZE_KEYS.contains(key))
-            return parent.length
-        return null
-    }
-    if (parent == null || parent is Number || parent is Boolean)
-        return null
-    return getValue(BeanMap(parent), key)
-}
-
-fun putValue(parent: Any?, key: String, value: Any?): Boolean {
-    if (parent is MutableMap<*,*>) {
-        (parent as MutableMap<Any?,Any?>)[key] = value
-        return true
-    }
-    if (parent is Array<*>) {
-        val index = key.toIntOrNull()
-        if (index == null || index < 0 || index >= parent.size)
-            return false
-        (parent as Array<Any?>)[index] = value
-        return true
-    }
-    if (parent is MutableList<*>) {
-        val index = key.toIntOrNull()
-        if (index == null || index < 0)
-            return false
-        val list = (parent as MutableList<Any?>)
-        while (index >= parent.size)
-            list.add(null)
-        list[index] = value
-        return true
-    }
-    if (parent is Iterable<*>)
-        return false
-    if (parent == null || parent is CharSequence || parent is Number || parent is Boolean)
-        return false
-    val bean = BeanMap(parent)
-    if (bean.containsKey(key)) {
-        bean[key] = value
-        return true
-    }
-    return false
-}
-
-fun postValue(parent: Any?, value: Any?): Boolean {
-    if (parent is MutableCollection<*>)
-        return (parent as MutableCollection<Any?>).add(value)
-    return false
-}
-
-fun deleteValue(parent: Any?, key: String): Boolean {
-    if (parent is MutableMap<*,*>) {
-        parent.remove(key)
-        return true
-    }
-    if (parent is MutableList<*>) {
-        val index = key.toIntOrNull()
-        if (index == null || index < 0 || index >= parent.size)
-            return false
-        parent.removeAt(index)
-        return true
-    }
-    return false
-}
-
-fun httpRequest(method: String, uri: URI, data: Any? = null, headers: Properties? = null): HttpResponse<InputStream> {
-    var type: String? = null
-    var request = HttpRequest.newBuilder().uri(uri)
-    if (headers != null) {
-        for (name in headers.stringPropertyNames()) {
-            val value = headers.getProperty(name)
-            request = request.setHeader(name, value)
-            if (name.toLowerCase() == "content-type")
-                type = value
-        }
-    }
-    if (type == null) {
-        type = DEFAULT_HTTP_REQUEST_MIMETYPE
-        request = request.setHeader("content-type", type)
-    }
-    request = when (method) {
-        "get" -> request.GET()
-        "put" -> request.PUT(HttpRequest.BodyPublishers.ofString(encode(type, data)))
-        "post" -> request.POST(HttpRequest.BodyPublishers.ofString(encode(type, data)))
-        "delete" -> request.DELETE()
-        else -> throw RuntimeException("Invalid HTTP method: "+method)
-    }
-    return HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build().send(request.build(), HttpResponse.BodyHandlers.ofInputStream())
-}
-
 fun initVariables(map: Map<String,Any?>? = null) {
     CURRENT_VARIABLES.set(null)
     if (map != null && map.isNotEmpty())
@@ -267,20 +154,24 @@ class Resource(private val src: Any?) {
         get() { return getMimetype() }
 
     fun getData(): Any? {
-        if (uri == null)
+        if (uri == null) {
+            writeLog("not supported uri: $src")
             return null
+        }
         if (uri.scheme == null) {
             var value: Any? = getVariables()
             val path = uri.path.split("/")
             for (key in path) {
                 value = getValue(value, key)
                 if (value == null)
-                    break
+                    return null
             }
             return value
         }
-        if (uri.scheme == "data")
-            return readData(DATA_SERIALIZER.unserialize(uri.toString()).data.toString(), type!!)
+        if (uri.scheme == "data") {
+            val bytes = DATA_SERIALIZER.unserialize(uri.toString()).data
+            return decode(type!!, ByteArrayInputStream(bytes))
+        }
         if (uri.scheme == "http" || uri.scheme == "https") {
             val response = httpRequest("get", uri)
             setMimetype(response)
@@ -300,6 +191,7 @@ class Resource(private val src: Any?) {
             input.close()
             return data
         }
+        writeLog("cannot get uri $uri")
         return null
     }
 
@@ -314,46 +206,62 @@ class Resource(private val src: Any?) {
                 if (value == null)
                     return false
             }
-            return putValue(value, path[path.size-1], data)
+            return putValue(value, path[path.size-1], execute(data))
         }
         if (uri.scheme == "http" || uri.scheme == "https") {
             val response = httpRequest("put", uri, data)
             setMimetype(response)
             return response.statusCode() < 299
         }
-        if (uri.scheme != "file")
-            return writeLog("cannot write uri scheme from $uri")
-        val file = getFile(uri)
-        if (file.isDirectory)
-            return writeLog("cannot write a directory: $uri")
-        if (!file.exists() && !file.parentFile.exists() && !file.parentFile.mkdirs())
-            return writeLog("cannot create parent directory for $uri")
-        val output = FileOutputStream(file)
-        output.write(encode(type!!, data).toByteArray())
-        output.flush()
-        output.close()
-        return true
+        if (uri.scheme == "file") {
+            val file = getFile(uri)
+            if (file.isDirectory)
+                return writeLog("cannot write a directory: $uri")
+            if (!file.exists() && !file.parentFile.exists() && !file.parentFile.mkdirs())
+                return writeLog("cannot create parent directory for $uri")
+            val output = FileOutputStream(file)
+            output.write(encode(type!!, execute(data)).toByteArray())
+            output.flush()
+            output.close()
+            return true
+        }
+        return writeLog("cannot put to uri $uri")
     }
 
-    fun postData(data: Any?): Boolean {
-        if (uri == null)
-            return writeLog("not supported uri: $src")
+    fun postData(data: Any?): Any? {
+        if (uri == null) {
+            writeLog("not supported uri: $src")
+            return null
+        }
         if (uri.scheme == null) {
             var value: Any? = getVariables()
             val path = uri.path.split("/")
             for (key in path) {
                 value = getValue(value, key)
                 if (value == null)
-                    break
+                    return null
             }
-            return postValue(value, data)
+            if (postValue(value, execute(data)))
+                return getValue(value, "last")
+            return null
         }
         if (uri.scheme == "http" || uri.scheme == "https") {
             val response = httpRequest("post", uri, data)
             setMimetype(response)
-            return response.statusCode() < 299
+            val status = response.statusCode()
+            if (status >= 400)
+                return null
+            if (status >= 300) {
+                val location: String? = response.headers().firstValue("location").orElse(null)
+                if (location == null)
+                    return this
+                return Resource(location)
+            }
+            return decode(mimetype!!, getInputStream(response.body()))
         }
-        return false
+        //TODO: for file scheme, do a append bytes if it makes sense
+        writeLog("cannot post to uri $uri")
+        return null
     }
 
     fun delete(): Boolean {
@@ -374,9 +282,9 @@ class Resource(private val src: Any?) {
             setMimetype(response)
             return response.statusCode() < 299
         }
-        if (uri.scheme != "file")
-            return writeLog("cannot remove uri $uri")
-        return deleteFile(getFile(uri))
+        if (uri.scheme == "file")
+            return deleteFile(getFile(uri))
+        return writeLog("cannot delete uri $uri")
     }
 
     override fun toString(): String {
@@ -416,9 +324,9 @@ class Resource(private val src: Any?) {
 private class Variables(): LinkedHashMap<String,Any?>() {}
 private val LOGGER = Logger.getLogger("Resource")
 private val CURRENT_VARIABLES = ThreadLocal<Variables>()
-private val SIZE_KEYS = "size,length,count".split(",")
 private val JSON = configureMapper(ObjectMapper())
 private val YAML = configureMapper(ObjectMapper(YAMLFactory()))
+private val DATA_REQUESTS = "put,post,patch".split(",")
 private val DATA_SERIALIZER = DataUrlSerializer()
 private val BASE64_ENCODER = Base64.getEncoder()
 private val DEFAULT_CSV_FORMAT = CSVFormat.EXCEL
@@ -444,7 +352,9 @@ private val EXTENSIONS_MAP = mapOf(
     "html" to "text/html",
     "htm" to "text/html",
     "xml" to "application/xml",
-    "properties" to "text/x-java-properties"
+    "properties" to "text/x-java-properties",
+    "sql" to "application/x-sql",
+    "jpql" to "application/x-jpql"
 )
 
 private fun decode(type: String, input: InputStream): Any? {
@@ -452,12 +362,14 @@ private fun decode(type: String, input: InputStream): Any? {
         "application/json" -> JSON.readValue(input, Any::class.java)
         "text/yaml" -> YAML.readValue(input, Any::class.java)
         "text/csv" -> decodeCsv(input)
-        "text/plain" -> InputStreamReader(input, DEFAULT_CHARSET).readText().split("\n")
+        "text/plain" -> InputStreamReader(input, DEFAULT_CHARSET).readText()
         "text/x-uriel" -> Expression(InputStreamReader(input, DEFAULT_CHARSET).readText())
         "text/html" -> Jsoup.parse(InputStreamReader(input, DEFAULT_CHARSET).readText())
         "application/xml" -> DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)
         "text/x-java-properties" -> decodeProperties(input)
         "application/x-www-form-urlencoded" -> decodeQueryString(input)
+        "application/x-sql" -> InputStreamReader(input, DEFAULT_CHARSET).readText()
+        "application/x-jpql" -> InputStreamReader(input, DEFAULT_CHARSET).readText()
         else -> input.readBytes()
     }
 }
@@ -556,8 +468,8 @@ private fun encodeQueryString(value: Any?): String {
     val entries = mutableListOf<String>()
     val map = value as Map<Any?,Any?>
     for (key in map.keys) {
-        entries.add(URLEncoder.encode(key?.toString() ?: "null", DEFAULT_CHARSET)+"="+
-                    URLEncoder.encode(map[key]?.toString() ?: "null", DEFAULT_CHARSET))
+        entries.add(urlencode(key?.toString() ?: "null")+"="+
+                    urlencode(map[key]?.toString() ?: "null"))
     }
     return entries.joinToString("&")
 }
@@ -739,6 +651,10 @@ private fun stringify(value: Any?, nullValue: String = ""): String {
     return value.toString()
 }
 
+private fun urlencode(txt: String): String {
+    return URLEncoder.encode(txt, DEFAULT_CHARSET).replace("+", "%20")
+}
+
 private fun getMap(value: Any?): Map<Any?,Any?> {
     if (value is Map<*,*>)
         return value as Map<Any?,Any?>
@@ -787,14 +703,18 @@ private fun detectUri(src: Any?): URI? {
         if (isRelativeFile(txt))
             return File(txt).getCanonicalFile().toURI()
         val scheme = getUriScheme(txt)
-        if (scheme != null || isValidPath(txt))
+        if (scheme != null) {
+            if (SUPPORTED_SCHEMES.contains(scheme))
+                return URI(txt)
+        }
+        else if (isValidPath(txt))
             return URI(txt)
     }
     return null
 }
 
 private fun isRelativeFile(txt: String): Boolean {
-    return txt == "." || txt == ".." || txt.startsWith("/") || txt.startsWith("./") || txt.startsWith("../")
+    return txt.startsWith("/") || txt.startsWith("./") || txt.startsWith("../")
 }
 
 private fun getUriScheme(txt: String): String? {
@@ -857,6 +777,41 @@ private fun deleteFile(file: File): Boolean {
     return file.delete()
 }
 
+private fun httpRequest(method: String, uri: URI, data: Any? = null, headers: Properties? = null): HttpResponse<InputStream> {
+    var type: String? = null
+    var request = HttpRequest.newBuilder().uri(uri)
+    if (headers != null) {
+        for (name in headers.stringPropertyNames()) {
+            val value = headers.getProperty(name)
+            request = request.setHeader(name, value)
+            if (name.toLowerCase() == "content-type")
+                type = value
+        }
+    }
+    var value = data
+    while (value is Expression)
+        value = value.execute()
+    if (DATA_REQUESTS.contains(method) && type == null) {
+        if (value is java.net.URL || value is java.net.URI || value is java.io.File)
+            value = Resource(value)
+        if (value is Resource)
+            type = value.type
+        if (type == null)
+            type = DEFAULT_HTTP_REQUEST_MIMETYPE
+        request = request.setHeader("content-type", type)
+    }
+    request = when (method) {
+        "get" -> request.GET()
+        "put" -> request.PUT(HttpRequest.BodyPublishers.ofString(encode(type!!, execute(value))))
+        "post" -> request.POST(HttpRequest.BodyPublishers.ofString(encode(type!!, execute(value))))
+        "delete" -> request.DELETE()
+        else -> throw RuntimeException("Invalid HTTP method: "+method)
+    }
+    return HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build().send(request.build(), HttpResponse.BodyHandlers.ofInputStream())
+}
+
 private fun getVariables(): Variables {
     var variables = CURRENT_VARIABLES.get()
     if (variables == null) {
@@ -864,11 +819,6 @@ private fun getVariables(): Variables {
         CURRENT_VARIABLES.set(variables)
     }
     return variables
-}
-
-private fun writeLog(msg: String): Boolean {
-    LOGGER.warning(msg)
-    return false
 }
 
 private fun getFirstTag(txt: String): String? {
@@ -905,4 +855,19 @@ private fun getInputStream(src: Any?): InputStream {
     if (src is Path)
         return FileInputStream(src.toFile())
     return ByteArrayInputStream(stringify(src, "").toByteArray())
+}
+
+private fun validSubtype(txt: String): Boolean {
+    for (i in txt.indices) {
+        val c = txt[i]
+        if (c in 'a'..'z' || c == '.' || c == '-' || c == '+')
+            continue
+        return false
+    }
+    return true
+}
+
+private fun writeLog(msg: String): Boolean {
+    LOGGER.warning(msg)
+    return false
 }

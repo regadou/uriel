@@ -10,7 +10,7 @@ The Uriel project aims for several goals, all revolving around expressing web re
 - natural language database query
 - vocally driven resource management
 
-The language syntax itself is based on URI tokens and HTTP verbs, with added functions for data types, comparison, logic, math and other utilities. It is a mix of prefix and infix syntax where some functions can be used like operators but all of them can be used in the prefix mode. There is no punctuation symbols (dot, comma, parenthesis, ...) aside from the double quote string delimiter. The end of line is the only expression delimiter. There is also no operator precedence. If several functions are present on a single line, the parser will create sub-expressions for each function after the first one.
+The language syntax itself is based on URI tokens and HTTP verbs, with added functions for data types, comparison, logic, math and flow control. It is a mix of prefix and infix syntax where some functions can be used like operators but all of them can be used with a prefix syntax. There is no punctuation symbols (dot, comma, parenthesis, ...) aside from the double quote string delimiter. The end of line is the only expression delimiter. There will be some operator precedence but it is not well defined yet. This is a work in progress that should evolve in a way to keep the language syntax close to a natural language feeling. For now, if several functions are present on a single line, the parser will create sub-expressions for each function after the first one, based on parameters requirements.
 
 To build the application: ./build.sh
 
@@ -22,7 +22,7 @@ To create and run a new service: ./run.sh service "config filename" create build
 
 See examples folder for more details
 
-*** WARNING: this code is still very buggy for now ***
+*** WARNING: the code still has some bugs so things might not work as expected ***
 
 Here is an example of what a running Uriel REPL session could look like:
 ```
@@ -35,7 +35,7 @@ Here is an example of what a running Uriel REPL session could look like:
    ? put y 2
    = 2
    ? put z add x y
-   = 3
+   = 3.0
    ? equal z 3
    = true
    ? get http://magicreg.com/
@@ -49,7 +49,7 @@ Here is an example of what a running Uriel REPL session could look like:
    ? put b list 1 true hello x y z
    = 1 true null 1 2 3
    ? post a 42
-   = 1 true hello 42
+   = 42
    ? get a
    = 1 true hello 42
    ? delete a/2
