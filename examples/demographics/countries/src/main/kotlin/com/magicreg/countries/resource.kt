@@ -1,4 +1,4 @@
-package com.magicreg.uriel
+package com.magicreg.countries
 
 import com.fasterxml.jackson.core.JsonGenerator
 import com.fasterxml.jackson.databind.JsonSerializer
@@ -15,7 +15,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.InputStreamReader
-import java.io.OutputStream
 import java.io.StringWriter
 import java.net.URI
 import java.net.URL
@@ -41,7 +40,6 @@ import org.apache.commons.csv.CSVFormat
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.w3c.dom.Node
-import javax.sound.midi.MidiSystem
 
 fun readData(input: String, type: String): Any? {
     if (EXTENSIONS_MAP.values.indexOf(type) < 0)
@@ -52,9 +50,7 @@ fun readData(input: String, type: String): Any? {
 fun printData(data: Any?, type: String): String {
     if (EXTENSIONS_MAP.values.indexOf(type) < 0)
         throw RuntimeException("Unsupported media type: $type")
-    val output = ByteArrayOutputStream()
-    encode(output, type, data)
-    return output.toString(DEFAULT_CHARSET)
+    return encode(type, data)
 }
 
 class Resource(private val src: Any?) {
@@ -66,12 +62,6 @@ class Resource(private val src: Any?) {
     private var mimetype: String? = null
     val type: String?
         get() { return getMimetype() }
-
-    constructor(input: InputStream, type: String): this(null) {
-        urielData = input
-        privateUri = URI("io:$input")
-        mimetype = type
-    }
 
     fun getData(): Any? {
         if (privateUri == null) {
@@ -155,14 +145,12 @@ class Resource(private val src: Any?) {
         if (privateUri?.scheme == "data") {
             val uridata = DATA_SERIALIZER.unserialize(uri.toString())
             mimetype = uridata.mimeType
-            val value = execute(data)
-            val output = ByteArrayOutputStream()
-            encode(output, mimetype!!, value)
+            val bytes = encode(mimetype!!, execute(data))
             val header = "data:$mimetype;charset=$DEFAULT_CHARSET"
             if (uridata.headers.containsKey("base64"))
-                privateUri = URI("$header;base64,"+BASE64_ENCODER.encodeToString(output.toByteArray()))
+                privateUri = URI("$header;base64,"+BASE64_ENCODER.encodeToString(bytes.toByteArray(DEFAULT_CHARSET)))
             else
-                privateUri = URI("$header,"+urlencode(output.toString(DEFAULT_CHARSET)))
+                privateUri = URI("$header,"+urlencode(bytes))
             return true
         }
         if (privateUri?.scheme == "http" || privateUri?.scheme == "https") {
@@ -177,7 +165,7 @@ class Resource(private val src: Any?) {
             if (!file.exists() && !file.parentFile.exists() && !file.parentFile.mkdirs())
                 return writeLog("cannot create parent directory for $uri")
             val output = FileOutputStream(file)
-            encode(output, type!!, execute(data))
+            output.write(encode(type!!, execute(data)).toByteArray())
             output.flush()
             output.close()
             return true
@@ -309,11 +297,7 @@ private val EXTENSIONS_MAP = mapOf(
     "xml" to "application/xml",
     "properties" to "text/x-java-properties",
     "sql" to "application/x-sql",
-    "jpql" to "application/x-jpql",
-    "mid" to "audio/midi",
-    "midi" to "audio/midi",
-    "kar" to "audio/midi",
-    "sf2" to "audio/x-sf2"
+    "jpql" to "application/x-jpql"
 )
 
 private fun decode(type: String, input: InputStream): Any? {
@@ -329,26 +313,22 @@ private fun decode(type: String, input: InputStream): Any? {
         "application/x-www-form-urlencoded" -> decodeQueryString(input)
         "application/x-sql" -> InputStreamReader(input, DEFAULT_CHARSET).readText()
         "application/x-jpql" -> InputStreamReader(input, DEFAULT_CHARSET).readText()
-        "audio/midi" -> MidiSystem.getSequence(input)
-        "audio/x-sf2" -> MidiSystem.getSoundbank(input)
         else -> input.readBytes()
     }
 }
 
-private fun encode(output: OutputStream, type: String, data: Any?) {
-    when(type) {
-        "application/json" -> JSON.writeValue(output, data)
-        "text/yaml" -> YAML.writeValue(output, data)
-        "text/csv" -> writeBytes(output, encodeCsv(data))
-        "text/plain" -> writeBytes(output, stringify(data))
-        "text/x-uriel" -> writeBytes(output, stringify(data))
-        "text/html" -> writeBytes(output, encodeHtml(data, null, null))
-        "application/xml" -> encodeXml(output, data)
-        "text/x-java-properties" -> encodeProperties(output, data)
-        "application/x-www-form-urlencoded" -> writeBytes(output, encodeQueryString(data))
-        "audio/midi" -> saveMusic(output, data)
-        "audio/x-sf2" -> throw RuntimeException("Writing soundfont files is not supported")
-        else -> writeBytes(output, stringify(data))
+private fun encode(type: String, data: Any?): String {
+    return when(type) {
+        "application/json" -> JSON.writeValueAsString(data)
+        "text/yaml" -> YAML.writeValueAsString(data)
+        "text/csv" -> encodeCsv(data)
+        "text/plain" -> stringify(data)
+        "text/x-uriel" -> YAML.writeValueAsString(data)
+        "text/html" -> encodeHtml(data, null, null)
+        "application/xml" -> encodeXml(data)
+        "text/x-java-properties" -> encodeProperties(data)
+        "application/x-www-form-urlencoded" -> encodeQueryString(data)
+        else -> data?.toString() ?: ""
     }
 }
 
@@ -394,7 +374,7 @@ private fun decodeProperties(input: InputStream): Any? {
     return props
 }
 
-private fun encodeProperties(output: OutputStream, value: Any?) {
+private fun encodeProperties(value: Any?): String {
     var p: Properties?
     if (value is Properties)
         p = value
@@ -407,7 +387,9 @@ private fun encodeProperties(output: OutputStream, value: Any?) {
         for (key in map.keys)
             p.setProperty(stringify(key, "null"), stringify(map[key]))
     }
+    val output = StringWriter()
     p.store(output, null)
+    return output.toString()
 }
 
 private fun decodeQueryString(input: InputStream): Any? {
@@ -435,10 +417,15 @@ private fun encodeQueryString(value: Any?): String {
     return entries.joinToString("&")
 }
 
-private fun encodeXml(output: OutputStream, value: Any?) {
-    if (value == null || value !is Node)
+private fun encodeXml(value: Any?): String {
+    if (value == null || !(value is Node))
         throw RuntimeException("XML data to encode must be of type "+Node::class.qualifiedName)
-    TransformerFactory.newInstance().newTransformer().transform(DOMSource(value as Node), StreamResult(output))
+    val output = ByteArrayOutputStream()
+    TransformerFactory.newInstance().newTransformer().transform(
+        DOMSource(value as Node),
+        StreamResult(output)
+    )
+    return output.toString(DEFAULT_CHARSET)
 }
 
 private fun encodeHtml(value: Any?, separator: String?, fields: MutableList<String>?): String {
@@ -607,10 +594,6 @@ private fun stringify(value: Any?, nullValue: String = ""): String {
     return value.toString()
 }
 
-private fun writeBytes(output: OutputStream, txt: String) {
-    output.write(txt.toByteArray(DEFAULT_CHARSET))
-}
-
 private fun urlencode(txt: String): String {
     return URLEncoder.encode(txt, DEFAULT_CHARSET).replace("+", "%20")
 }
@@ -764,10 +747,10 @@ private fun httpRequest(method: String, uri: URI, data: Any? = null, headers: Pr
     }
     request = when (method) {
         "get" -> request.GET()
-        "put" -> request.PUT(HttpRequest.BodyPublishers.ofString(printData(execute(value), type!!)))
-        "post" -> request.POST(HttpRequest.BodyPublishers.ofString(printData(execute(value), type!!)))
+        "put" -> request.PUT(HttpRequest.BodyPublishers.ofString(encode(type!!, execute(value))))
+        "post" -> request.POST(HttpRequest.BodyPublishers.ofString(encode(type!!, execute(value))))
         "delete" -> request.DELETE()
-        else -> throw RuntimeException("Invalid HTTP method: $method")
+        else -> throw RuntimeException("Invalid HTTP method: "+method)
     }
     return HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)

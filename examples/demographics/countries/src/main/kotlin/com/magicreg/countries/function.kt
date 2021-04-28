@@ -1,13 +1,11 @@
-package com.magicreg.uriel
+package com.magicreg.countries
 
 import java.util.logging.Logger
 import kotlin.reflect.KClass
-import kotlin.reflect.KFunction
-import kotlin.reflect.KVisibility
 import kotlin.system.exitProcess
 
 fun getFunction(name: String): UFunction? {
-    return FUNCTIONS[name] ?: checkClassOrFunction(name)
+    return FUNCTIONS[name] //TODO: check if it is a class or a static method
 }
 
 fun addFunction(function: UFunction): Boolean {
@@ -174,8 +172,8 @@ val PRINT = Action("print", null) { params ->
     null
 }
 
-val SHELL = Action("shell", 1) { params ->
-    val cmd = params.map { toString(execute(it)) }.joinToString(" ")
+val SHELL = Action("shell", null) { params ->
+    val cmd = params.map { toString(execute(it)) }.joinToString("")
     Runtime.getRuntime().exec(cmd, null, null).waitFor()
     //TODO: redirect stdout to caller that can use it as a resource
 }
@@ -434,75 +432,4 @@ private fun compare(v1: Any?, v2: Any?): Int {
 
 private fun checkState(parent: Any?, value: Any?): Boolean {
     return false //TODO: implement IS function in here
-}
-
-private fun checkClassOrFunction(name: String): UFunction? {
-    var function: UFunction? = null
-    val parts = name.split("#")
-    if (parts.size > 2)
-        return null
-    try {
-        val klass = Class.forName(parts[0]).kotlin
-        if (parts.size == 1)
-            function = createConstructorFunction(klass)
-        else
-            function = createStaticFunction(klass, parts[1])
-    }
-    catch(e: Throwable) { return null }
-    if (function != null)
-        FUNCTIONS[name] = function
-    return function
-}
-
-private fun createConstructorFunction(klass: KClass<*>): UFunction? {
-    var params: Int? = null
-    for (cons in klass.constructors) {
-        if (cons.visibility != KVisibility.PUBLIC)
-            continue
-        if (hasVararg(cons))
-            return createClassType(klass, null)
-        val size = cons.parameters.size
-        if (params == null || params < size)
-            params = size
-    }
-    if (params == null)
-        return null
-    return createClassType(klass, params)
-}
-
-private fun createStaticFunction(klass: KClass<*>, name: String): UFunction? {
-    return null // TODO: get all static functions by thos name for this class
-}
-
-private fun createClassType(klass: KClass<*>, params: Int?): UFunction {
-    var selected: KFunction<*>? = null
-    return Type(klass.qualifiedName!!, params, klass, { params ->
-        for (cons in klass.constructors) {
-            if (cons.visibility != KVisibility.PUBLIC)
-                continue
-            if (cons.parameters.size == params.size) {
-                selected = cons
-                break
-            }
-            if (hasVararg(cons))
-                selected = cons
-        }
-        if (selected != null) {
-            val f = selected!!
-            if (f.parameters.size == 1 && f.parameters[0].isVararg)
-                f.call(params.map { execute(it) }.toTypedArray())
-            else
-                f.call(*params.map { execute(it) }.toTypedArray())
-        }
-        else
-            null
-    })
-}
-
-private fun hasVararg(function: KFunction<*>): Boolean {
-    for (param in function.parameters) {
-        if (param.isVararg)
-            return true
-    }
-    return false
 }

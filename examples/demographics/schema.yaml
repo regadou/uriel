@@ -92,7 +92,7 @@ CountryLanguage:
     country:
       type: Country
     language:
-      type: Language
+      type: string
     official:
       type: boolean
     percentage:

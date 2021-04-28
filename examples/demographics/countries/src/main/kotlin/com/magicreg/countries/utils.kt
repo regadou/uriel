@@ -1,4 +1,4 @@
-package com.magicreg.uriel
+package com.magicreg.countries
 
 import org.apache.commons.beanutils.BeanMap
 import java.io.BufferedReader

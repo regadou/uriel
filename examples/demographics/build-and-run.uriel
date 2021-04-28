@@ -1,16 +1,16 @@
 #!/usr/bin/env uriel
 
-#service ./countries.properties create build run
+service ./countries.properties create build run
 print "waiting 5 seconds for the service to start ..."
 shell "sleep 5"
 put datauri "http://localhost:4242/data/"
-put tables call ./schema.yaml keys
-each tables table
-  print "importing data for " table " ..."
-  put target add datauri table
-  post uri target uri add "./" table ".csv"
-  put query data "application/x-sql" add "select count(*) as nb from " table
-  put count post uri datauri uri query
+put entities call ./schema.yaml keys
+each entities entity
+  print "importing data for " entity " ..."
+  put target add datauri entity
+  post uri target uri add "./" entity ".csv"
+  put query add "select count(*) as nb from " entity
+  put count post uri datauri put data:application/x-sql, query
   print "records saved: " count
 end each
 print "all done"

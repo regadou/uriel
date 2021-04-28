@@ -1,4 +1,4 @@
-package com.magicreg.uriel
+package com.magicreg.countries
 
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
@@ -185,22 +185,10 @@ private fun findBestMatch(callables: MutableList<KCallable<*>>, args: Array<Any?
 private fun evalToken(token: String): Any? {
     return KEYWORDS.get(token)
         ?: getFunction(token)
-        ?: checkNumeric(token)
+        ?: token.toLongOrNull()
+        ?: token.toDoubleOrNull()
+        ?: toDate(token)
         ?: checkResource(token)
-        //TODO: if still null, do we trhow execpetion or it might be something else ?
-}
-
-private fun checkNumeric(token: String): Any? {
-    if (token.isEmpty())
-        return null
-    var first = token[0]
-    if ((first == '+' || first == '-') && token.length > 1)
-        first = token[1]
-    if (first < '0' || first > '9')
-        return null
-    if (token.startsWith("0x"))
-        return token.toLongOrNull(16)
-    return token.toLongOrNull() ?: token.toDoubleOrNull() ?: toDate(token)
 }
 
 private fun checkResource(src: String): Resource? {

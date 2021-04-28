@@ -307,7 +307,7 @@ private fun listFolderFiles(folder: File, type: String, documentRoot: String): R
 private fun sendFile(file: File, request: HttpRequest): Response {
     val type = getFileType(file)
     if (type == URIEL_SCRIPT) {
-        initVariables()
+        Resource(null).putData(null)
         val result = Expression(file.readText()).execute()
         if (result is Response)
             return result
