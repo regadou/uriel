@@ -41,3 +41,4 @@ nb-configuration.xml
 # others
 private/
 *.log
+examples/demographics/countries/
