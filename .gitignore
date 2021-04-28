@@ -39,6 +39,8 @@ nb-configuration.xml
 .env
 
 # others
-private/
 *.log
+*.jar
+private/
 examples/demographics/countries/
+

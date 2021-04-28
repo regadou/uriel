@@ -180,7 +180,7 @@ val SHELL = Action("shell", 1) { params ->
     //TODO: redirect stdout to caller that can use it as a resource
 }
 
-val CALL = Action("call", null) { params ->
+val DO = Action("do", null) { params ->
     var result: Any? = null
     if (params.size > 1) {
         val target = execute(params[0])
@@ -304,7 +304,7 @@ val EACH = Bloc("each") { params ->
 }
 
 val END = Bloc("end") { params ->
-    throw RuntimeException("End function calld with "+params.joinToString(" "))
+    throw RuntimeException("End function called with "+params.joinToString(" "))
 }
 
 val IS = State("is") { params ->
@@ -345,10 +345,11 @@ private val FUNCTIONS = initFunctions()
 private fun initFunctions(): MutableMap<String,UFunction> {
     val map = mutableMapOf<String,UFunction>()
     for (f in arrayOf<UFunction>(
-        GET, PUT, POST, DELETE, IS, HAS, PRINT, ADD,
+        GET, PUT, POST, DELETE, DO, IS, HAS,
+        EQUAL, LESS, MORE, AND, OR, NOT, OF, // IN, AT, FROM, TO, OUT, BETWEEN
+        ADD, // REMOVE, MULTIPLY, DIVIDE, MODULO, EXPONENT, ROOT, LOGARITHM
         URI, STRING, NUMBER, REAL, INTEGER, BOOLEAN, DATE, LIST, SET, MAP,
-        EQUAL, LESS, MORE, AND, OR, NOT, OF, // IN, AT, FROM, TO
-        EVAL, SHELL, CALL, EXIT, EACH, END
+        PRINT, EVAL, SHELL, EXIT, EACH, END // IF, ELSE, WHILE, FUNCTION
     )) {
         map[f.name] = f
     }

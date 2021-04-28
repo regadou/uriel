@@ -2,6 +2,5 @@
 
 put song com.magicreg.uriel.Song ./eveil.mid "Eveil des voix"
 print "playing song " song
-call song play
+do song play true
 print "song ended"
-

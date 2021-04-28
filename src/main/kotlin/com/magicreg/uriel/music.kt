@@ -7,9 +7,10 @@ import java.io.OutputStream
 import java.net.URI
 import java.net.URL
 import javax.sound.midi.*
+import org.apache.commons.beanutils.BeanMap
 
 private const val MIDI_FILE_TYPE = 1
-private const val RUNNING_CHECK_FREQUENCY = 100L
+private const val RUNNING_CHECK_FREQUENCY = 500L
 
 fun saveMusic(output: OutputStream, data: Any?): Boolean {
     if (data is Song)
@@ -35,33 +36,41 @@ class Song(vararg args: Any) {
             setValue(arg)
     }
 
-    var status: SongStatus = SongStatus.STOPPED
+    val properties: Map<String,Any?>
+        get() { return BeanMap(sequencer ?: initSequencer()) as Map<String,Any?> }
+
+    val status: SongStatus
         get() {
             if (sequencer == null)
                 return SongStatus.STOPPED
-            if (sequencer!!.isRunning)
-                return SongStatus.PLAYING
             if (sequencer!!.isRecording)
                 return SongStatus.RECORDING
+            if (sequencer!!.isRunning)
+                return SongStatus.PLAYING
             return SongStatus.STOPPED
         }
 
-    fun play() {
-        if (sequencer == null)
-            initSequencer()
-        if (sequence != null) {
-            sequencer!!.sequence = sequence
-            sequencer!!.open();
-            sequencer!!.start()
-            while (sequencer!!.isRunning)
+    fun play(block: Boolean): Boolean {
+        if (sequence == null)
+            return false
+        val seq = sequencer ?: initSequencer()
+        seq.open();
+        seq.start()
+        if (block) {
+            while (seq.isRunning)
                 Thread.sleep(RUNNING_CHECK_FREQUENCY);
-            sequencer!!.close()
+            seq.close()
         }
+        return true
     }
 
-    fun stop() {
-        if (sequencer != null)
+    fun stop(): Boolean {
+        if (sequencer != null && sequencer!!.isRunning) {
             sequencer!!.stop()
+            sequencer!!.close()
+            return true
+        }
+        return false
     }
 
     fun getPosition(): Double {
@@ -73,10 +82,8 @@ class Song(vararg args: Any) {
     fun setPosition(pos: Double): Boolean {
         if (pos < 0 || pos > 1)
             return false
-        if (pos > 0 && sequence != null && sequencer == null) {
+        if (pos > 0 && sequence != null && sequencer == null)
             initSequencer()
-            sequencer!!.sequence = sequence
-        }
         if (sequencer != null) {
             sequencer!!.tickPosition = (pos * sequencer!!.tickLength).toLong()
             return true
@@ -95,8 +102,16 @@ class Song(vararg args: Any) {
 
     private fun setValue(value: Any?) {
         when (value) {
-            is Sequence -> sequence = value
-            is Sequencer -> sequencer = value
+            is Sequence -> {
+                sequence = value
+                if (sequencer != null)
+                    sequencer!!.sequence = sequence
+            }
+            is Sequencer -> {
+                sequencer = value
+                if (sequence != null)
+                    sequencer!!.sequence = sequence
+            }
             is Soundbank -> soundbank = value
             is File -> sequence = getSequence(FileInputStream(value), true, value.toString())
             is URI -> sequence = getSequence(value.toURL().openStream(), true, value.toString())
@@ -127,7 +142,7 @@ class Song(vararg args: Any) {
         return seq
     }
 
-    private fun initSequencer() {
+    private fun initSequencer(): Sequencer {
         if (soundbank == null) {
             val prop = System.getProperty("uriel.midi.soundbank")
             if (prop != null)
@@ -141,6 +156,9 @@ class Song(vararg args: Any) {
         }
         sequencer = MidiSystem.getSequencer(false)
         sequencer!!.transmitter.receiver = synth.receiver
+        if (sequence != null)
+            sequencer!!.sequence = sequence
+        return sequencer!!
     }
 
     private fun copySong(song: Song) {
