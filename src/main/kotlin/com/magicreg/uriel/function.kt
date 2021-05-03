@@ -5,6 +5,7 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.KVisibility
 import kotlin.system.exitProcess
+import org.apache.commons.beanutils.BeanMap
 
 fun getFunction(name: String): UFunction? {
     return FUNCTIONS[name] ?: checkClassOrFunction(name)
@@ -16,6 +17,49 @@ fun addFunction(function: UFunction): Boolean {
         return false
     FUNCTIONS[name] = function
     return true
+}
+
+fun addType(type: KClass<*>, name: String? = null): UFunction? {
+    val fname = name ?: type.qualifiedName!!
+    if (FUNCTIONS[fname] != null)
+        return null
+    val function = createConstructorFunction(type, fname)
+    if (function != null)
+        FUNCTIONS[fname] = function
+    return function
+}
+
+fun getResource(value: Any?): Any? {
+    if (value is Expression)
+        return getResource(value.execute())
+    if (value == null || value is Resource)
+        return value
+    if (value is java.net.URL || value is java.net.URI || value is java.io.File)
+        return Resource(value)
+    if (value is CharSequence) {
+        val r = Resource(value)
+        if (r.uri != null)
+            return r
+    }
+    return value
+}
+
+fun getKey(src: Any?): String {
+    if (src is Resource) {
+        val uri = src.uri
+        if (uri != null && uri.scheme == null)
+            return uri.path
+        return getKey(src.getData())
+    }
+    if (src is Expression)
+        return getKey(src.execute())
+    if (src is java.net.URL || src is java.net.URI || src is java.io.File)
+        return getKey(Resource(src))
+    if (src == null)
+        return ""
+    if (src is CharSequence)
+        return src.toString()
+    return toString(src)
 }
 
 interface UFunction {
@@ -130,21 +174,7 @@ val SET = Type("set", null, Set::class) { params ->
     mutableSetOf<Any?>(*executeItems(params))
 }
 
-val MAP = Type("map", null, Map::class) { params ->
-    val map = mutableMapOf<String,Any?>()
-    var key: String? = null
-    for (param in params) {
-        if (key == null)
-            key = getKey(param)
-        else {
-            map[key] = execute(param)
-            key = null
-        }
-    }
-    if (key != null)
-        map[key] = null
-    map
-}
+val MAP = Type("map", null, Map::class) { params -> createMap(params) }
 
 val NUMBER = Type("number", 1, Number::class) { params ->
     if (params.isEmpty()) 0 else toNumber(execute(params[0]))
@@ -194,15 +224,8 @@ val DO = Action("do", null) { params ->
 }
 
 val EXIT = Action("exit", 1) { params ->
-    val param: Any = (if (params.isEmpty()) null else params[0]) ?: 0
-    val n: Int? = if (param is Number) param.toInt() else param.toString().toIntOrNull()
-    if (n != null)
-        exitProcess(n)
-    else {
-        // TODO: find a parent block matching the param value
-        throw RuntimeException("Block exit is not implemented yet: "+toString(arrayOf<Any?>("exit", *params)))
-    }
-    null
+    val status: Int = (if (params.isEmpty()) null else toInt(execute(params[0]))) ?: 0
+    exitProcess(status)
 }
 
 val EVAL = Action("eval", 1) { params ->
@@ -303,6 +326,16 @@ val EACH = Bloc("each") { params ->
     null
 }
 
+val WHILE = Bloc("while") { params ->
+    if (params.size > 1) {
+        while (toBoolean(execute(params[0]))) {
+            for (p in 1 until params.size)
+                execute(params[p])
+        }
+    }
+    null
+}
+
 val END = Bloc("end") { params ->
     throw RuntimeException("End function called with "+params.joinToString(" "))
 }
@@ -349,7 +382,7 @@ private fun initFunctions(): MutableMap<String,UFunction> {
         EQUAL, LESS, MORE, AND, OR, NOT, OF, // IN, AT, FROM, TO, OUT, BETWEEN
         ADD, // REMOVE, MULTIPLY, DIVIDE, MODULO, EXPONENT, ROOT, LOGARITHM
         URI, STRING, NUMBER, REAL, INTEGER, BOOLEAN, DATE, LIST, SET, MAP,
-        PRINT, EVAL, SHELL, EXIT, EACH, END // IF, ELSE, WHILE, FUNCTION
+        PRINT, EVAL, SHELL, EXIT, EACH, WHILE, END // IF, ELSE, FUNCTION
     )) {
         map[f.name] = f
     }
@@ -366,39 +399,6 @@ private fun initFunctions(): MutableMap<String,UFunction> {
 
 private fun executeItems(items: Array<Any?>): Array<Any?> {
     return Array<Any?>(items.size) { execute(items[it]) }
-}
-
-fun getResource(value: Any?): Any? {
-    if (value is Expression)
-        return getResource(value.execute())
-    if (value == null || value is Resource)
-        return value
-    if (value is java.net.URL || value is java.net.URI || value is java.io.File)
-        return Resource(value)
-    if (value is CharSequence) {
-        val r = Resource(value)
-        if (r.uri != null)
-            return r
-    }
-    return value
-}
-
-fun getKey(src: Any?): String {
-    if (src is Resource) {
-        val uri = src.uri
-        if (uri != null && uri.scheme == null)
-            return uri.path
-        return getKey(src.getData())
-    }
-    if (src is Expression)
-        return getKey(src.execute())
-    if (src is java.net.URL || src is java.net.URI || src is java.io.File)
-        return getKey(Resource(src))
-    if (src == null)
-        return ""
-    if (src is CharSequence)
-        return src.toString()
-    return toString(src)
 }
 
 private fun evalExpression(value: Any?): Any? {
@@ -444,10 +444,10 @@ private fun checkClassOrFunction(name: String): UFunction? {
         return null
     try {
         val klass = Class.forName(parts[0]).kotlin
-        if (parts.size == 1)
-            function = createConstructorFunction(klass)
+        function = if (parts.size == 1)
+            createConstructorFunction(klass, klass.qualifiedName!!)
         else
-            function = createStaticFunction(klass, parts[1])
+            createStaticFunction(klass, parts[1])
     }
     catch(e: Throwable) { return null }
     if (function != null)
@@ -455,29 +455,29 @@ private fun checkClassOrFunction(name: String): UFunction? {
     return function
 }
 
-private fun createConstructorFunction(klass: KClass<*>): UFunction? {
+private fun createConstructorFunction(klass: KClass<*>, name: String): UFunction? {
     var params: Int? = null
     for (cons in klass.constructors) {
         if (cons.visibility != KVisibility.PUBLIC)
             continue
         if (hasVararg(cons))
-            return createClassType(klass, null)
+            return createClassType(klass, null, name)
         val size = cons.parameters.size
         if (params == null || params < size)
             params = size
     }
     if (params == null)
         return null
-    return createClassType(klass, params)
+    return createClassType(klass, params, name)
 }
 
 private fun createStaticFunction(klass: KClass<*>, name: String): UFunction? {
-    return null // TODO: get all static functions by thos name for this class
+    return null // TODO: get all static functions by those name for this class
 }
 
-private fun createClassType(klass: KClass<*>, params: Int?): UFunction {
+private fun createClassType(klass: KClass<*>, params: Int?, name: String): UFunction {
     var selected: KFunction<*>? = null
-    return Type(klass.qualifiedName!!, params, klass, { params ->
+    return Type(name, params, klass) { params ->
         for (cons in klass.constructors) {
             if (cons.visibility != KVisibility.PUBLIC)
                 continue
@@ -497,7 +497,7 @@ private fun createClassType(klass: KClass<*>, params: Int?): UFunction {
         }
         else
             null
-    })
+    }
 }
 
 private fun hasVararg(function: KFunction<*>): Boolean {

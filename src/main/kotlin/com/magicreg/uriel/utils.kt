@@ -1,8 +1,9 @@
 package com.magicreg.uriel
 
-import org.apache.commons.beanutils.BeanMap
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import kotlin.reflect.KClass
+import org.apache.commons.beanutils.BeanMap
 
 private val SIZE_KEYS = "size,length,count".split(",")
 private val HTML_TAGS = arrayOf("html", "head", "title", "style", "script", "link", "body", "div", "img", "audio", "video")
@@ -17,11 +18,25 @@ fun execute(value: Any?): Any? {
         val res = Resource(value)
         if (res.uri != null)
             return execute(res.getData())
-        if (value is java.io.File)
-            return value.canonicalFile.toURI().toString()
         return value.toString()
     }
     return value
+}
+
+fun isType(value: Any?, vararg types: KClass<*>): Boolean {
+    for (type in types) {
+        if (type.isInstance(value))
+            return true
+    }
+    return false
+}
+
+fun isNotType(value: Any?, vararg types: KClass<*>): Boolean {
+    for (type in types) {
+        if (type.isInstance(value))
+            return false
+    }
+    return true
 }
 
 fun getValue(parent: Any?, key: String): Any? {
@@ -212,6 +227,42 @@ fun detectMimetype(text: String): String? {
     if (colons+pounds+dashes == count)
         return if (dashes > 0) "text/yaml" else "text/x-java-properties"
     return null
+}
+
+fun createMap(params: Array<Any?>): MutableMap<Any?,Any?> {
+    if (params.size == 1) {
+        val param = execute(params[0])
+        if (param is Map<*,*>)
+            return LinkedHashMap(param)
+        if (isNotType(param, Array::class, Collection::class, CharSequence::class, Number::class, Boolean::class)) {
+            val map = mutableMapOf<Any?, Any?>()
+            if (param != null) {
+                val bean = BeanMap(param)
+                for (key in bean.keys)
+                    map[key.toString()] = bean[key]
+            }
+            return map
+        }
+    }
+
+    val map = mutableMapOf<Any?,Any?>()
+    var key: String? = null
+    for (param in params) {
+        if (key != null) {
+            map[key] = execute(param)
+            key = null
+        }
+        else if (isArrayExpression(param)) {
+            val values = toList(execute(param))
+            if (values.isNotEmpty())
+                map[getKey(values[0])] = simplify(values.subList(1, values.size))
+        }
+        else
+            key = getKey(param)
+    }
+    if (key != null)
+        map[key] = null
+    return map
 }
 
 fun toClassCase(txt: String?): String? {

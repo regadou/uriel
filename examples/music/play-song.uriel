@@ -1,6 +1,10 @@
 #!/usr/bin/env uriel
 
-put song com.magicreg.uriel.Song ./eveil.mid "Eveil des voix"
-print "playing song " song
-do song play true
+put eveil song ./eveil.mid "Eveil des voix"
+print "playing song " eveil " ..."
+do eveil play true
 print "song ended"
+
+# to play the song from the command line:
+# uriel do song ./eveil.mid '"Eveil des voix"' end play true
+

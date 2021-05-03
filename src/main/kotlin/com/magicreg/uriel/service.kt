@@ -225,7 +225,7 @@ private val JDBC_DRIVERS = mapOf(
     "sqlserver"  to "com.microsoft.sqlserver.jdbc.SQLServerDriver",
     "sqlite"     to "org.sqlite.JDBC"
 )
-private val KOTLIN_RESOURCES = "controller,converter,entity,expression,function,resource,utils".split(",")
+private val KOTLIN_RESOURCES = "controller,converter,entity,expression,function,music,resource,utils".split(",")
 private val DEPENDENCY_NODES = "groupId,artifactId,version".split(",")
 private val POM_DEPENDENCIES = arrayOf(
     "org.jetbrains.kotlin,kotlin-reflect,\${kotlin.version}",

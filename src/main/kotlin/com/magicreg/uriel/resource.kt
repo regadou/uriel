@@ -59,7 +59,7 @@ fun printData(data: Any?, type: String): String {
 
 class Resource(private val src: Any?) {
 
-    private var urielData: Any? = null
+    private var appData: Any? = null
     private var privateUri: URI? = detectUri(src)
     val uri: URI?
         get() { return privateUri }
@@ -68,8 +68,14 @@ class Resource(private val src: Any?) {
         get() { return getMimetype() }
 
     constructor(input: InputStream, type: String): this(null) {
-        urielData = input
+        appData = input
         privateUri = URI("io:$input")
+        mimetype = type
+    }
+
+    constructor(output: OutputStream, type: String): this(null) {
+        appData = output
+        privateUri = URI("io:$output")
         mimetype = type
     }
 
@@ -88,15 +94,15 @@ class Resource(private val src: Any?) {
             }
             return value
         }
-        if (privateUri?.scheme == "uriel") {
+        if (privateUri?.scheme == "app") {
             if (privateUri?.path == "/")
                 return getVariables()
-            if (urielData is InputStream) {
+            if (appData is InputStream) {
                 if (mimetype == null)
                     mimetype = "text/plain" //TODO: use detectMimetype instead
-                urielData = decode(mimetype!!, urielData as InputStream)
+                appData = decode(mimetype!!, appData as InputStream)
             }
-            return urielData
+            return appData
         }
         if (privateUri?.scheme == "data") {
             val uridata = DATA_SERIALIZER.unserialize(uri.toString())
@@ -139,19 +145,8 @@ class Resource(private val src: Any?) {
             }
             return putValue(value, path[path.size-1], execute(data))
         }
-        if (privateUri?.scheme == "uriel") {
-            if (privateUri?.path == "/") {
-                val value = execute(data)
-                if (value == null)
-                    CURRENT_VARIABLES.set(null)
-                else if (value is Map<*,*> && value.isNotEmpty())
-                    getVariables().putAll(value as Map<String,Any?>)
-                else
-                    return false
-                return true
-            }
-            return false //TODO: encode if it is output stream or writer
-        }
+        if (privateUri?.scheme == "app")
+            return appDataPutOrPost(data)
         if (privateUri?.scheme == "data") {
             val uridata = DATA_SERIALIZER.unserialize(uri.toString())
             mimetype = uridata.mimeType
@@ -190,6 +185,8 @@ class Resource(private val src: Any?) {
             writeLog("not supported uri: $src")
             return null
         }
+        if (privateUri?.scheme == "app")
+            return if (appDataPutOrPost(data)) data else null
         if (privateUri?.scheme == null) {
             var value: Any? = getVariables()
             val path = privateUri!!.path.split("/")
@@ -252,7 +249,7 @@ class Resource(private val src: Any?) {
         if (mimetype == null) {
             if (privateUri == null)
                 return null
-            if (privateUri?.scheme == null)
+            if (privateUri?.scheme == null || privateUri?.scheme == "app")
                 mimetype = "text/x-uriel"
             else if (privateUri?.scheme == "data")
                 mimetype = DATA_SERIALIZER.unserialize(uri.toString()).mimeType
@@ -276,6 +273,26 @@ class Resource(private val src: Any?) {
     private fun setMimetype(response: HttpResponse<*>) {
         mimetype = response.headers().firstValue("content-type").orElse(DEFAULT_HTTP_RESPONSE_MIMETYPE)
     }
+
+    private fun appDataPutOrPost(data: Any?): Boolean {
+        if (privateUri?.path == "/") {
+            val value = execute(data)
+            if (value == null)
+                CURRENT_VARIABLES.set(null)
+            else if (value is Map<*,*> && value.isNotEmpty())
+                getVariables().putAll(value as Map<String,Any?>)
+            else
+                return false
+            return true
+        }
+        if (appData is OutputStream) {
+            if (mimetype == null)
+                mimetype = "text/plain" //TODO: use detectMimetype instead
+            encode(appData as OutputStream, mimetype!!, data)
+            return true
+        }
+        return false //TODO: encode if it is output stream or writer
+    }
 }
 
 private class Variables(): LinkedHashMap<String,Any?>() {}
@@ -293,7 +310,7 @@ private const val DEFAULT_FILE_MIMETYPE = "text/plain"
 private const val DEFAULT_HTTP_REQUEST_MIMETYPE = "application/json"
 private const val DEFAULT_HTTP_RESPONSE_MIMETYPE = "text/html"
 private val DEFAULT_CHARSET = java.nio.charset.StandardCharsets.UTF_8
-private val SUPPORTED_SCHEMES = arrayOf("file", "http", "https", "data") //TODO: sftp, mailto, app, geo, sip, ...
+private val SUPPORTED_SCHEMES = arrayOf("file", "http", "https", "data", "app") //TODO: sftp, mailto, geo, sip, ...
 private val EXTENSIONS_MAP = mapOf(
     "json" to "application/json",
     "yaml" to "text/yaml",
@@ -653,7 +670,7 @@ private fun getExpression(value: String): Any? {
 
 private fun detectUri(src: Any?): URI? {
     if (src == null || src == "")
-        return URI("uriel:/")
+        return URI("app:/")
     if (src is URI)
         return src
     if (src is URL)

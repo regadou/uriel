@@ -1,0 +1,12 @@
+#!/usr/bin/env uriel
+
+put x 1
+put y 2
+put z add x y
+put multi map
+  name "Regis Dehoux"
+  age 57
+  gender "male"
+  residence "Montreal"
+end map
+print "variables = " app:/

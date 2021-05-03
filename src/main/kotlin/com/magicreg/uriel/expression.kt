@@ -3,6 +3,7 @@ package com.magicreg.uriel
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
+import kotlin.reflect.full.isSuperclassOf
 
 class Expression() {
 
@@ -19,7 +20,7 @@ class Expression() {
     constructor(txt: String): this() {
         val paramsList = mutableListOf<Any?>()
         val lines = txt.trim().split("\n")
-        if (lines.size == 1)
+        if (lines.size == 1 && lines[0].isNotEmpty() && lines[0][0] != POUND_SIGN)
             function = compileTokens(ParsingStatus(parseText(lines[0]).toTypedArray()), paramsList)
         else {
             compileLines(lines, paramsList)
@@ -40,8 +41,43 @@ class Expression() {
     }
 
     override fun toString(): String {
-        return toString(tokens)
+        return "("+toString(tokens)+")"
     }
+}
+
+class Callable(private val callable: KCallable<*>): UFunction {
+    override val name = callable.name
+    override val type = FunctionType.COMMAND
+    override val parameters = callable.parameters.size + 1
+
+    override fun execute(vararg params: Any?): Any? {
+        val converted = Array<Any?>(params.size) {null}
+        for (i in 0 until params.size)
+            converted[i] = convertExecuted(params[i], callable.parameters[i])
+        return callable.call(*converted)
+    }
+
+    override fun toString(): String {
+        return (callable.parameters[0].type.classifier as KClass<*>).qualifiedName + "#" + name
+    }
+}
+
+fun isArrayExpression(value: Any?): Boolean {
+    if (value is Expression) {
+        if (value.function == null)
+            return value.params.size > 1
+        if (value.function is Type) {
+            val klass = (value.function as Type).klass
+            return Collection::class.isSuperclassOf(klass) || Array::class.isSuperclassOf(klass)
+        }
+        return false
+    }
+    if (value is Resource) {
+        if (value?.uri?.scheme != null)
+            return isArrayExpression(value.getData())
+        return false
+    }
+    return value is Collection<*> || value is Array<*>
 }
 
 private const val SPACE_CHAR = '\u0020'      // ' '
@@ -69,11 +105,23 @@ private class ParsingStatus(val tokens: Array<Any?>) {
             return true
         return params.size < function?.parameters!!
     }
+
+    override fun toString(): String {
+        return "(ParsingStatus at $currentToken of $tokens)"
+    }
 }
 
 private class ExpressionParams(exp: Expression) {
     val function = exp.function
     val params = mutableListOf<Any?>(*exp.params)
+
+    fun toExpression(): Expression {
+        return Expression(function, params.toTypedArray())
+    }
+
+    override fun toString(): String {
+        return "(ExpressionParams $function $params)"
+    }
 }
 
 private fun compileTokens(status: ParsingStatus, params: MutableList<Any?>): UFunction? {
@@ -85,6 +133,10 @@ private fun compileTokens(status: ParsingStatus, params: MutableList<Any?>): UFu
         else if (token is UFunction) {
             if (params.isEmpty() && function == null)
                 function = token
+            else if (token.type == FunctionType.BLOC && token.name == "end") {
+                status.currentToken++
+                return function
+            }
             else {
                 val subParams = mutableListOf<Any?>()
                 val subFunction = compileTokens(status, subParams)
@@ -96,6 +148,7 @@ private fun compileTokens(status: ParsingStatus, params: MutableList<Any?>): UFu
             params.add(token)
         status.currentToken++
     }
+
     return function
 }
 
@@ -114,8 +167,18 @@ private fun compileLines(lines: List<String>, originalParams: MutableList<Any?>)
                     params = blocs.get(blocs.size-1).params
                 }
             }
-            else
-                params.add(exp)
+            else {
+                val subexp = lastParamMultilineFunction(exp.params)
+                if (subexp == null)
+                    params.add(exp)
+                else {
+                    val bloc = ExpressionParams(exp)
+                    bloc.params.removeAt(bloc.params.size-1)
+                    blocs.add(bloc)
+                    blocs.add(ExpressionParams(subexp))
+                    params = blocs[blocs.size-1].params
+                }
+            }
         }
     }
     closeBlocs(blocs)
@@ -186,8 +249,9 @@ private fun evalToken(token: String): Any? {
     return KEYWORDS.get(token)
         ?: getFunction(token)
         ?: checkNumeric(token)
+        ?: getMusicalNote(token)
         ?: checkResource(token)
-        //TODO: if still null, do we trhow execpetion or it might be something else ?
+        //TODO: if still null, do we throw exception or it might be something else ?
 }
 
 private fun checkNumeric(token: String): Any? {
@@ -196,6 +260,8 @@ private fun checkNumeric(token: String): Any? {
     var first = token[0]
     if ((first == '+' || first == '-') && token.length > 1)
         first = token[1]
+    if (first == '.')
+        return token.toDoubleOrNull()
     if (first < '0' || first > '9')
         return null
     if (token.startsWith("0x"))
@@ -224,22 +290,27 @@ private fun getFunctionName(params: Array<Any?>): String {
 }
 
 private fun closeBlocs(blocs: MutableList<ExpressionParams>, function: String = "", originalParams: MutableList<Any?> = mutableListOf<Any?>()): MutableList<Any?> {
-    val closing = findBloctoClose(blocs, function)
+    val closing = findBlocToClose(blocs, function)
     for (b in blocs.size-1 downTo closing) {
-        val bloc = blocs[b]
-        val exp = Expression(bloc.function, bloc.params.toTypedArray())
-        blocs.removeAt(b)
+        val exp = blocs.removeAt(b).toExpression()
         if (blocs.size > 0)
             blocs[blocs.size-1].params.add(exp)
         else
             originalParams.add(exp)
     }
-    if (closing > 0)
-        return blocs[closing-1].params
+    if (closing > 0) {
+        val bloc = blocs[closing - 1]
+        if (bloc.function?.type == FunctionType.BLOC)
+            return bloc.params
+        val exp = blocs.removeAt(closing-1).toExpression()
+        val params = if (closing > 1) blocs[closing - 2].params else originalParams
+        params.add(exp)
+        return params
+    }
     return originalParams
 }
 
-private fun findBloctoClose(blocs: MutableList<ExpressionParams>, function: String): Int {
+private fun findBlocToClose(blocs: MutableList<ExpressionParams>, function: String): Int {
     if (function.isEmpty())
         return 0
     for (b in blocs.size-1 downTo 0) {
@@ -247,22 +318,21 @@ private fun findBloctoClose(blocs: MutableList<ExpressionParams>, function: Stri
         if (f != null && f.name == function)
             return b
     }
-    throw RuntimeException("Cannot fin bloc function to close: "+function)
+    throw RuntimeException("Cannot find bloc function to close: "+function+"\n"+blocs.joinToString("\n"))
 }
 
-class Callable(private val callable: KCallable<*>): UFunction {
-    override val name = callable.name
-    override val type = FunctionType.COMMAND
-    override val parameters = callable.parameters.size + 1
-
-    override fun execute(vararg params: Any?): Any? {
-        val converted = Array<Any?>(params.size) {null}
-        for (i in 0 until params.size)
-            converted[i] = convert(params[i], callable.parameters[i].type.classifier as KClass<*>)
-        return callable.call(*converted)
+private fun lastParamMultilineFunction(params: Array<Any?>): Expression? {
+    if (params.isEmpty())
+        return null
+    val last = params[params.size-1]
+    if (last is Expression) {
+        val function = last.function
+        if (function != null && function.parameters == null && last.params.isEmpty())
+            return last
     }
+    return null
+}
 
-    override fun toString(): String {
-        return (callable.parameters[0].type.classifier as KClass<*>).qualifiedName + "." + name
-    }
+private fun convertExecuted(value: Any?, param: KParameter): Any? {
+    return convert(execute(value), param.type.classifier as KClass<*>)
 }

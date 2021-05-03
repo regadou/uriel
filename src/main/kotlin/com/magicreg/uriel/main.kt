@@ -32,6 +32,7 @@ class Application(): QuarkusApplication {
 
     override fun run(vararg args: String): Int {
         addFunction(Action("service", null) { params -> runService(params, printActions) })
+        initMusicFunctions()
         if (args.isNotEmpty()) {
             try {
                 val result = execute(Expression(args.joinToString(" ")))
