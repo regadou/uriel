@@ -1,10 +1,10 @@
 #!/usr/bin/env uriel
 
-put eveil song ./eveil.mid "Eveil des voix"
+put eveil song ./assets/eveil.mid "Eveil des voix"
 print "playing song " eveil " ..."
 do eveil play true
 print "song ended"
 
 # to play the song from the command line:
-# uriel do song ./eveil.mid '"Eveil des voix"' end play true
+# uriel do song ./assets/eveil.mid '"Eveil des voix"' end play true
 

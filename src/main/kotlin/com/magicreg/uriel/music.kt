@@ -4,7 +4,7 @@ import java.io.OutputStream
 import javax.sound.midi.*
 import kotlin.math.roundToInt
 
-private val SONG_PROPERTIES = listOf("name", "artist", "sequence", "sequencer", "bpm", "loops", "position", "beats", "seconds", "tracks")
+private val SONG_PROPERTIES = listOf("name", "artist", "sequence", "sequencer", "synth", "bpm", "loops", "position", "beats", "seconds", "tracks")
 private var SOUNDBANK: Soundbank? = null
 private val MIDI_NOTES = arrayOf('C','#','D','#','E','F','#','G','#','A','#','B')
 private const val BASE_MIDI_NOTE = 12
@@ -22,10 +22,48 @@ private val DIVISION_TYPES = arrayOf<Float>(
 
 fun initMusicFunctions() {
     addType(Song::class, "song")
+
     addFunction(Type("track", null, Track::class) { params ->
         val executedParams = params.map { execute(it) }.toTypedArray()
         UTrack(*executedParams).generateMidi()
     })
+
+    addFunction(Type("channel", null, MidiChannel::class) { params ->
+        var chno: Int? = null
+        var instrument: String? = null
+        var song: Song? = null
+        var synth: Synthesizer? = null
+
+        for (param in params) {
+            val value = execute(param)
+            if (value is Song)
+                song = value
+            else if (value is Synthesizer)
+                synth = value
+            else if (value is CharSequence) {
+                if (instrument == null)
+                    instrument = getInstrumentName(value, chno == 10)
+            }
+            else if (value is Int) {
+                if (chno == null && value > 0 && value <= 16)
+                    chno = value
+                else if (instrument == null)
+                    instrument = getInstrumentName(value, chno == 10)
+            }
+        }
+
+        val channel = findChannel(song, synth, chno ?: 1)
+        if (instrument != null) {
+            for (i in getSoundbank().instruments) {
+                if (i.name == instrument) {
+                    channel.programChange(i.patch.bank, i.patch.program)
+                    break
+                }
+            }
+        }
+        channel
+    })
+
     addFunction(Type("loop", 3, Loop::class) { params ->
         var count: Int? = null
         var start: Float? = null
@@ -41,6 +79,7 @@ fun initMusicFunctions() {
         }
         Loop(count ?: 1, start, end)
     })
+
     addFunction(Action("soundbank", 1) { params ->
         val param = if (params.isEmpty()) null else execute(params[0])
         if (param == null)
@@ -78,6 +117,14 @@ class Note(txt: String) {
     override fun toString(): String {
         return name
     }
+
+    override fun equals(that: Any?): Boolean {
+        return that is Note && that.midi == midi
+    }
+
+    override fun hashCode(): Int {
+        return midi
+    }
 }
 
 class Loop(val count: Int, val start: Float?, val end: Float?) {
@@ -100,6 +147,7 @@ class Song(vararg args: Any?) {
     private var loops: Loop? = null
     private var sequence: Sequence? = null
     private var sequencer: Sequencer? = null
+    private var synth: Synthesizer? = null
     init {
         for (arg in args)
             setValue(execute(arg))
@@ -134,7 +182,7 @@ class Song(vararg args: Any?) {
         }
         seq.sequence = song
         if (loops != null) {
-            seq.loopCount = loops!!.count
+            seq.loopCount = loops!!.count - 1
             seq.loopStartPoint = beatsToTicks(loops!!.start ?: 1f, BeatMeasure.POSITION, song.resolution)
             seq.loopEndPoint = if (loops?.end == null) song.tickLength else beatsToTicks(loops!!.end!!, BeatMeasure.POSITION, song.resolution)
         }
@@ -168,8 +216,9 @@ class Song(vararg args: Any?) {
         return when(name) {
             "name" -> name
             "artist" -> artist
-            "sequence" -> sequence ?: (property("sequencer") as Sequencer).sequence
+            "sequence" -> generateMidi()
             "sequencer" -> sequencer ?: initSequencer()
+            "synth" -> synth
             "bpm" -> (cachedbpm ?: sequencer?.tempoInBPM ?: 0)
             "loops" -> loops
             "position" -> if (sequencer == null) 0 else (sequencer!!.tickPosition.toDouble() / sequencer!!.tickLength)
@@ -210,7 +259,7 @@ class Song(vararg args: Any?) {
         this.loops = loops
     }
 
-    fun tracks(track: Int): List<String> {
+    fun track(track: Int): List<String> {
         val events = mutableListOf<String>()
         val tracks = generateMidi().tracks
         if (track >= 0 && track < tracks.size) {
@@ -244,6 +293,7 @@ class Song(vararg args: Any?) {
         when (value) {
             is Sequence -> sequence = value
             is Sequencer -> sequencer = value
+            is Synthesizer -> synth = value
             is Song -> copySong(value)
             is Track -> addTrack(value)
             is Number -> cachedbpm = value.toFloat()
@@ -287,19 +337,28 @@ class Song(vararg args: Any?) {
                     else if (value == null)
                         sequencer = null
                 }
+                "synth" -> {
+                    if (value is Synthesizer)
+                        synth = value
+                    else if (value == null)
+                        synth = null
+                }
             }
         }
     }
 
     private fun initSequencer(): Sequencer {
-        val synth = MidiSystem.getSynthesizer()
-        synth.open()
-        if (getSoundbank() != synth.defaultSoundbank) {
-            synth.unloadAllInstruments(synth.defaultSoundbank)
-            synth.loadAllInstruments(SOUNDBANK)
+        if (synth == null)
+            synth = MidiSystem.getSynthesizer()
+        val s = synth!!
+        if (!s.isOpen)
+            s.open()
+        if (getSoundbank() != s.defaultSoundbank) {
+            s.unloadAllInstruments(s.defaultSoundbank)
+            s.loadAllInstruments(SOUNDBANK)
         }
         sequencer = MidiSystem.getSequencer(false)
-        sequencer!!.transmitter.receiver = synth.receiver
+        sequencer!!.transmitter.receiver = s.receiver
         return sequencer!!
     }
 
@@ -530,6 +589,14 @@ private fun printMidiEvent(event: MidiEvent, resolution: Int): String {
         return "($beat $txt channel=$channel)"
     }
     return "($beat $message)"
+}
+
+private fun findChannel(song: Song?, synth: Synthesizer?, chno: Int): MidiChannel {
+    if (song != null)
+        return (song.properties["synth"] as Synthesizer).channels[chno-1]
+    if (synth != null)
+        return synth.channels[chno-1]
+    return MidiSystem.getSynthesizer().channels[chno-1]
 }
 
 private fun ticksToBeats(ticks: Long, measure: BeatMeasure, resolution: Int = DEFAULT_TICK_RESOLUTION): Float {

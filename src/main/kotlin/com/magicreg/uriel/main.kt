@@ -32,6 +32,7 @@ class Application(): QuarkusApplication {
 
     override fun run(vararg args: String): Int {
         addFunction(Action("service", null) { params -> runService(params, printActions) })
+        initAudioFunctions()
         initMusicFunctions()
         if (args.isNotEmpty()) {
             try {

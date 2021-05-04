@@ -6,6 +6,8 @@ import kotlin.reflect.KFunction
 import kotlin.reflect.KVisibility
 import kotlin.system.exitProcess
 import org.apache.commons.beanutils.BeanMap
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 fun getFunction(name: String): UFunction? {
     return FUNCTIONS[name] ?: checkClassOrFunction(name)
@@ -199,13 +201,18 @@ val DATE = Type("date", null, java.util.Date::class) { params ->
         toDate(params.map { execute(it) })
 }
 
+val READ = Action("read", null) { params ->
+    print(params.joinToString("") { toString(execute(it)) })
+    BufferedReader(InputStreamReader(System.`in`)).readLine()
+}
+
 val PRINT = Action("print", null) { params ->
-    println(params.map { toString(execute(it)) }.joinToString(""))
+    println(params.joinToString("") { toString(execute(it)) })
     null
 }
 
 val SHELL = Action("shell", 1) { params ->
-    val cmd = params.map { toString(execute(it)) }.joinToString(" ")
+    val cmd = params.joinToString(" ") { toString(execute(it)) }
     Runtime.getRuntime().exec(cmd, null, null).waitFor()
     //TODO: redirect stdout to caller that can use it as a resource
 }
@@ -382,7 +389,7 @@ private fun initFunctions(): MutableMap<String,UFunction> {
         EQUAL, LESS, MORE, AND, OR, NOT, OF, // IN, AT, FROM, TO, OUT, BETWEEN
         ADD, // REMOVE, MULTIPLY, DIVIDE, MODULO, EXPONENT, ROOT, LOGARITHM
         URI, STRING, NUMBER, REAL, INTEGER, BOOLEAN, DATE, LIST, SET, MAP,
-        PRINT, EVAL, SHELL, EXIT, EACH, WHILE, END // IF, ELSE, FUNCTION
+        READ, PRINT, EVAL, SHELL, EXIT, EACH, WHILE, END // IF, ELSE, FUNCTION
     )) {
         map[f.name] = f
     }

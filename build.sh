@@ -2,7 +2,7 @@
 
 mvn clean
 mkdir -p target/classes
-for file in converter expression function music resource utils; do
+for file in audio converter expression function music resource utils; do
     cp src/main/kotlin/com/magicreg/uriel/$file.kt target/classes/$file.kt
 done
 DSP_FILE=src/lib/TarsosDSP-2.4-bin.jar
