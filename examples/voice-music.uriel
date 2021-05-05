@@ -1,11 +1,12 @@
 #!/usr/bin/env uriel
 
-# comment out the line below if you dont't have a soundfont to load (or change the path of the file)
-soundfont /home/regis/Desktop/music/soundfonts/FluidR3_GM.sf2
+soundbank ./assets/FluidR3_GM.sf2
 print "Available input devices: " audio input
 put device read "Choose a device: "
 print "Available algorithms: " audio input device pitch
 put algo read "Choose an algorithm: "
-audio input device pitch algo channel 1 "xylophone"
+audio input device pitch algo
+#audio input device pitch algo "="
+#audio input device pitch algo "violin"
 read "Press enter to stop listening ...\n"
 

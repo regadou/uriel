@@ -41,6 +41,7 @@ nb-configuration.xml
 # others
 *.log
 *.jar
+*.sf2
 private/
 examples/demographics/countries/
 

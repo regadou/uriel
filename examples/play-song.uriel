@@ -1,5 +1,6 @@
 #!/usr/bin/env uriel
 
+soundbank ./assets/FluidR3_GM.sf2
 put eveil song ./assets/eveil.mid "Eveil des voix"
 print "playing song " eveil " ..."
 do eveil play true

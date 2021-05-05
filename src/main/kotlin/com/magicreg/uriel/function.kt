@@ -165,7 +165,22 @@ val URI = Type("uri", 1, Resource::class) { params ->
 }
 
 val STRING = Type("string", 1, String::class) { params ->
-    if (params.isEmpty()) "" else toString(execute(params[0]))
+    if (params.size > 1) {
+        val sep = toString(execute(params[1]) ?: "")
+        val value = execute(params[0])
+        if (value is Collection<*>)
+            value.joinToString(sep)
+        else if (value is Array<*>)
+            value.joinToString(sep)
+        else if (value is Map<*,*>)
+            value.entries.joinToString(sep)
+        else
+            toString(value)
+    }
+    else if (params.isEmpty())
+        ""
+    else
+        toString(execute(params[0]))
 }
 
 val LIST = Type("list", null, List::class) { params ->

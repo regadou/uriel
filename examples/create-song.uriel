@@ -1,5 +1,6 @@
 #!/usr/bin/env uriel
 
+soundbank ./assets/FluidR3_GM.sf2
 put beat song
     "a beat"
     60

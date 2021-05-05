@@ -8,11 +8,9 @@ import be.tarsos.dsp.pitch.PitchDetectionResult
 import be.tarsos.dsp.pitch.PitchProcessor
 import be.tarsos.dsp.pitch.PitchProcessor.PitchEstimationAlgorithm
 import javax.sound.midi.MidiChannel
-import javax.sound.midi.Synthesizer
 import javax.sound.sampled.*
 import kotlin.math.ln
 import kotlin.math.roundToInt
-
 
 enum class AudioDeviceType {
     INPUT, OUTPUT, ANY
@@ -77,7 +75,7 @@ fun doAudioAction(action: String, mixer: Mixer, params: List<Any?>): Any? {
     return when (action.toLowerCase()) {
         "detect", "pitch", "detectpitch", "pitchdetection" -> {
             if (params.isEmpty())
-                PitchEstimationAlgorithm.values().map { it.toString().toLowerCase() }
+                PitchEstimationAlgorithm.values().map { it.toString().toLowerCase() }.sorted()
             else {
                 val target = if (params.size < 2) null else execute(params[1])
                 detectPitch(mixer, params[0].toString(), target)
@@ -96,7 +94,8 @@ fun hertzToNote(hertz: Float): Note {
 private val AUDIO_DEVICES = mutableListOf<Map<String,String>>()
 private val MIXER_INFOS = mutableMapOf<String,Mixer.Info>()
 private val NOTE_NAMES = "A,A#,B,C,C#,D,D#,E,F,F#,G,G#".split(",")
-private val NOTE_BASE = 0.031359713524659
+private const val NOTE_BASE = 0.031359713524659
+private const val TOP_FREQUENCY = 1500f
 private val LOG_2 = ln(2.0)
 private const val sampleRate = 44100f
 private const val bufferSize = 1024
@@ -146,25 +145,32 @@ private fun detectPitch(mixer: Mixer, algoName: String, target: Any?) {
     val audioStream = JVMAudioInputStream(stream)
     val dispatcher = AudioDispatcher(audioStream, bufferSize, overlap)
     val algo = PitchEstimationAlgorithm.valueOf(algoName.toUpperCase())
-    val handler = MyHandler(target)
+    val handler = UPitchHandler(target)
     dispatcher.addAudioProcessor(PitchProcessor(algo, sampleRate, bufferSize, handler))
     Thread(dispatcher, "Audio dispatching").start()
 }
 
-private class MyHandler(private val target: Any?) : PitchDetectionHandler {
+private class UPitchHandler(target: Any?) : PitchDetectionHandler {
 
+    private val channel: MidiChannel? = findMidiChannel(target)
+    private val symbol: Char? = if (channel == null) findPaddingSymbol(target) else null
     private var lastNote: Note? = null
+    private val levelBar: CharArray = CharArray(detectScreenSize())
+    init {
+        if (target != null && symbol == null && channel == null)
+            throw RuntimeException("Invalid pitch detection target: $target")
+    }
 
     override fun handlePitch(pitchDetectionResult: PitchDetectionResult, audioEvent: AudioEvent) {
         if (pitchDetectionResult.pitch != -1f) {
             val timeStamp = audioEvent.timeStamp
             val pitch = pitchDetectionResult.pitch
             val note = hertzToNote(pitch)
-            if (target is MidiChannel)
-                playNote(target, note)
-            else if (target is Synthesizer)
-                playNote(target.channels[0], note)
-            else if (target == null)
+            if (channel != null)
+                playNote(channel, note)
+            else if (symbol != null)
+                printLevelBar(pitch)
+            else
                 print(String.format("   %.2fHz = %s at %.2fs         \r", pitch, note, timeStamp))
             // TODO: what to do with other types of targets ?
         }
@@ -176,4 +182,30 @@ private class MyHandler(private val target: Any?) : PitchDetectionHandler {
         channel.noteOn(note.midi, 127)
         lastNote = note
     }
+
+    private fun printLevelBar(level: Float) {
+        val limit = (level / TOP_FREQUENCY * levelBar.size).roundToInt()
+        levelBar.fill(symbol!!, 0, limit)
+        levelBar.fill(' ', limit)
+        print(String(levelBar)+"\r")
+    }
+}
+
+private fun findPaddingSymbol(target: Any?): Char? {
+    if (target is CharSequence && target.isNotEmpty())
+        return target.toString()[0]
+    if (target is Char)
+        return target
+    return null
+}
+
+private fun detectScreenSize(): Int {
+    val process = Runtime.getRuntime().exec("stty -a")
+    val lines = String(process.inputStream.readAllBytes()).split("\n")
+    val parts = lines[0].split(";")
+    for (part in parts) {
+        if (part.contains("columns"))
+            return part.trim().split(" ")[1].toInt()
+    }
+    return 80
 }
