@@ -14,7 +14,7 @@ The language syntax itself is based on URI tokens and HTTP verbs, with added fun
 
 To build the application: ./build.sh
 
-To build a native version: ./build.sh -Pnative
+To build a native version: ./build.sh native
 
 To run the REPL: ./run.sh
 

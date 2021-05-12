@@ -99,7 +99,7 @@ class EntityFactory @Inject constructor(private var manager: EntityManager) {
                 val mimetype = detectMimetype(query.trim())
                 if (mimetype == null)
                     throw RuntimeException("Cannot detect text mimetype: $query")
-                val entity = simplify(toList(readData(query, mimetype)))
+                val entity = execute(Expression(null, toArray(readData(query, mimetype))))
                 if (entity is Map<*, *>)
                     return dataQuery(entity as Map<Any?, Any?>)
                 throw RuntimeException("Invalid type for MAP query: " + entity!!::class.simpleName)

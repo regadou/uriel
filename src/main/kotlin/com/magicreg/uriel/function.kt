@@ -232,7 +232,7 @@ val SHELL = Action("shell", 1) { params ->
     //TODO: redirect stdout to caller that can use it as a resource
 }
 
-val DO = Action("do", null) { params ->
+val CALL = Action("call", null) { params ->
     var result: Any? = null
     if (params.size > 1) {
         val target = execute(params[0])
@@ -400,11 +400,11 @@ private val FUNCTIONS = initFunctions()
 private fun initFunctions(): MutableMap<String,UFunction> {
     val map = mutableMapOf<String,UFunction>()
     for (f in arrayOf<UFunction>(
-        GET, PUT, POST, DELETE, DO, IS, HAS,
+        GET, PUT, POST, DELETE, IS, HAS, CALL, EVAL, SHELL,
         EQUAL, LESS, MORE, AND, OR, NOT, OF, // IN, AT, FROM, TO, OUT, BETWEEN
         ADD, // REMOVE, MULTIPLY, DIVIDE, MODULO, EXPONENT, ROOT, LOGARITHM
         URI, STRING, NUMBER, REAL, INTEGER, BOOLEAN, DATE, LIST, SET, MAP,
-        READ, PRINT, EVAL, SHELL, EXIT, EACH, WHILE, END // IF, ELSE, FUNCTION
+        READ, PRINT, EXIT, EACH, WHILE, END // IF, ELSE, FUNCTION
     )) {
         map[f.name] = f
     }

@@ -11,5 +11,9 @@ if [ ! -f $DSP_FILE ]; then
     echo "Dowloading audio library to $DSP_FILE ..."
     wget -qO $DSP_FILE https://0110.be/releases/TarsosDSP/TarsosDSP-2.4/TarsosDSP-2.4-bin.jar
 fi
-./mvnw package $@
+if [ "$1" = "native" ]; then
+    NATIVE="-Pnative -Dquarkus.native.container-build=true -Dquarkus.native.builder-image=quay.io/quarkus/ubi-quarkus-mandrel:{mandrel-flavor}"
+    shift
+fi
+./mvnw package $NATIVE $@
 

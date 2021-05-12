@@ -36,7 +36,7 @@ class Expression() {
 
     fun execute(): Any? {
         if (function == null)
-            return simplify(listOf(*params))
+            return buildExpression(params.map{execute(it)})
         return (function as UFunction).execute(*params)
     }
 
@@ -52,7 +52,7 @@ class Callable(private val callable: KCallable<*>): UFunction {
 
     override fun execute(vararg params: Any?): Any? {
         val converted = Array<Any?>(params.size) {null}
-        for (i in 0 until params.size)
+        for (i in params.indices)
             converted[i] = convertExecuted(params[i], callable.parameters[i])
         return callable.call(*converted)
     }
@@ -101,9 +101,9 @@ private class ParsingStatus(val tokens: Array<Any?>) {
     fun needToken(function: UFunction?, params: List<Any?>): Boolean {
         if (currentToken >= tokens.size)
             return false
-        if (function == null || function.parameters == null)
+        if (function?.parameters == null)
             return true
-        return params.size < function?.parameters!!
+        return params.size < function.parameters!!
     }
 
     override fun toString(): String {
@@ -211,13 +211,22 @@ private fun parseText(text: String): List<Any?> {
             inQuote = true
             start = i
         }
-        else if (c == POUND_SIGN)
         else
             start = i
     }
     if (inQuote)
-        throw RuntimeException("Missing closing quote for string literal:\n"+text)
+        throw RuntimeException("Missing closing quote for string literal:\n$text")
     return tokens
+}
+
+private fun buildExpression(params: List<Any?>): Any? {
+    val paramsList = mutableListOf<Any?>()
+    val function = compileTokens(ParsingStatus(params.toTypedArray()), paramsList)
+    if (paramsList.isEmpty())
+        return function
+    if (function == null)
+        return if (paramsList.size == 1) paramsList[0] else paramsList
+    return function.execute(*paramsList.toTypedArray())
 }
 
 private fun findMember(target: Any, callable: String, args: Array<Any?>): UFunction {
@@ -246,7 +255,7 @@ private fun findBestMatch(callables: MutableList<KCallable<*>>, args: Array<Any?
 }
 
 private fun evalToken(token: String): Any? {
-    return KEYWORDS.get(token)
+    return KEYWORDS[token]
         ?: getFunction(token)
         ?: checkNumeric(token)
         ?: getMusicalNote(token)

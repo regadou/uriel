@@ -5,6 +5,7 @@ print "Available input devices: " audio input
 put device read "Choose a device: "
 print "Available algorithms: " audio input device pitch
 put algo read "Choose an algorithm: "
+# try some different parameter for the pitch target
 audio input device pitch algo
 #audio input device pitch algo "="
 #audio input device pitch algo "violin"

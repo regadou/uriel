@@ -4,7 +4,7 @@ service ./countries.properties create build run
 print "waiting 5 seconds for the service to start ..."
 shell "sleep 5"
 put datauri "http://localhost:4242/data/"
-put entities do ./schema.yaml keys
+put entities call ./schema.yaml keys
 each entities entity
   print "importing data for " entity " ..."
   put target add datauri entity

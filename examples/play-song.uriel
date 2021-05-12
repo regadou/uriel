@@ -3,9 +3,9 @@
 soundbank ./assets/FluidR3_GM.sf2
 put eveil song ./assets/eveil.mid "Eveil des voix"
 print "playing song " eveil " ..."
-do eveil play true
+call eveil play true
 print "song ended"
 
 # to play the song from the command line:
-# uriel do song ./assets/eveil.mid '"Eveil des voix"' end play true
+# uriel call song ./assets/eveil.mid '"Eveil des voix"' end play true
 

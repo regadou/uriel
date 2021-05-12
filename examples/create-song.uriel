@@ -15,7 +15,7 @@ put beat song
         end list
     end map
 end song
-do beat loops loop 4
+call beat loops loop 4
 print "playing song " beat " ..."
-do beat play true
+call beat play true
 

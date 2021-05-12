@@ -255,7 +255,7 @@ fun createMap(params: Array<Any?>): MutableMap<Any?,Any?> {
         else if (isArrayExpression(param)) {
             val values = toList(execute(param))
             if (values.isNotEmpty())
-                map[getKey(values[0])] = simplify(values.subList(1, values.size))
+                map[getKey(values[0])] = execute(Expression(null, values.subList(1, values.size).toTypedArray()))
         }
         else
             key = getKey(param)
@@ -315,14 +315,6 @@ fun getInternalResource(path: String): String {
     val txt = InputStreamReader(input).readText()
     input.close()
     return txt
-}
-
-fun simplify(list: List<Any?>): Any? {
-    return when(list.size) {
-        0 -> null
-        1 -> list[0]
-        else -> list
-    }
 }
 
 fun checkDebug(args: Array<String>): Array<String> {
