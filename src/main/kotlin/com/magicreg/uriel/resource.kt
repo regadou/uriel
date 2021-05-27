@@ -85,7 +85,7 @@ class Resource(private val src: Any?) {
             return null
         }
         if (privateUri?.scheme == null) {
-            var value: Any? = getVariables()
+            var value: Any? = currentContext()
             val path = privateUri!!.path.split("/")
             for (key in path) {
                 value = getValue(value, key)
@@ -96,7 +96,7 @@ class Resource(private val src: Any?) {
         }
         if (privateUri?.scheme == "app") {
             if (privateUri?.path == "/")
-                return getVariables()
+                return currentContext()
             if (appData is InputStream) {
                 if (mimetype == null)
                     mimetype = "text/plain" //TODO: use detectMimetype instead
@@ -136,7 +136,7 @@ class Resource(private val src: Any?) {
         if (privateUri == null)
             return writeLog("not supported uri: $src")
         if (privateUri?.scheme == null) {
-            var value: Any? = getVariables()
+            var value: Any? = currentContext()
             val path = privateUri!!.path.split("/")
             for (p in 0 until path.size-1) {
                 value = getValue(value, path[p])
@@ -185,10 +185,8 @@ class Resource(private val src: Any?) {
             writeLog("not supported uri: $src")
             return null
         }
-        if (privateUri?.scheme == "app")
-            return if (appDataPutOrPost(data)) data else null
         if (privateUri?.scheme == null) {
-            var value: Any? = getVariables()
+            var value: Any? = currentContext()
             val path = privateUri!!.path.split("/")
             for (key in path) {
                 value = getValue(value, key)
@@ -199,6 +197,8 @@ class Resource(private val src: Any?) {
                 return getValue(value, "last")
             return null
         }
+        if (privateUri?.scheme == "app")
+            return if (appDataPutOrPost(data)) data else null
         if (privateUri?.scheme == "http" || privateUri?.scheme == "https") {
             val response = httpRequest("post", privateUri!!, data)
             setMimetype(response)
@@ -222,7 +222,7 @@ class Resource(private val src: Any?) {
         if (privateUri == null)
             return writeLog("not supported uri: $src")
         if (privateUri?.scheme == null) {
-            var value: Any? = getVariables()
+            var value: Any? = currentContext()
             val path = privateUri!!.path.split("/")
             for (p in 0 until path.size-1) {
                 value = getValue(value, path[p])
@@ -277,10 +277,8 @@ class Resource(private val src: Any?) {
     private fun appDataPutOrPost(data: Any?): Boolean {
         if (privateUri?.path == "/") {
             val value = execute(data)
-            if (value == null)
-                CURRENT_VARIABLES.set(null)
-            else if (value is Map<*,*> && value.isNotEmpty())
-                getVariables().putAll(value as Map<String,Any?>)
+            if (value is Map<*,*> && value.isNotEmpty())
+                currentContext().putAll(value as Map<String,Any?>)
             else
                 return false
             return true
@@ -295,9 +293,7 @@ class Resource(private val src: Any?) {
     }
 }
 
-private class Variables(): LinkedHashMap<String,Any?>() {}
 private val LOGGER = Logger.getLogger("Resource")
-private val CURRENT_VARIABLES = ThreadLocal<Variables>()
 private val JSON = configureMapper(ObjectMapper())
 private val YAML = configureMapper(ObjectMapper(YAMLFactory()))
 private val DATA_REQUESTS = "put,post,patch".split(",")
@@ -676,11 +672,11 @@ private fun detectUri(src: Any?): URI? {
     if (src is URL)
         return src.toURI()
     if (src is File)
-        return src.getCanonicalFile().toURI()
+        return src.canonicalFile.toURI()
     if (src is CharSequence) {
         val txt = src.toString().trim()
         if (isRelativeFile(txt))
-            return File(txt).getCanonicalFile().toURI()
+            return File(txt).canonicalFile.toURI()
         val scheme = getUriScheme(txt)
         if (scheme != null) {
             if (SUPPORTED_SCHEMES.contains(scheme))
@@ -697,13 +693,13 @@ private fun isRelativeFile(txt: String): Boolean {
 }
 
 private fun getUriScheme(txt: String): String? {
-    for (i in 0..txt.length-1) {
-        val c = txt.get(i)
+    for (i in txt.indices) {
+        val c = txt[i]
         if (c == ':' && i > 1)
             return txt.substring(0, i)
-        if (c >= 'a' && c <= 'z')
+        if (c in 'a'..'z')
             continue
-        if (c >= 'A' && c <= 'Z')
+        if (c in 'A'..'Z')
             continue
         return null
     }
@@ -715,17 +711,17 @@ private fun isValidPath(txt: String): Boolean {
     for (part in txt.split("/")) {
         if (part.isEmpty())
             return false
-        for (i in 0..part.length-1) {
-            val c = part.get(i)
-            if (c >= 'a' && c <= 'z')
+        for (i in part.indices) {
+            val c = part[i]
+            if (c in 'a'..'z')
                 continue
-            if (c >= 'A' && c <= 'Z')
+            if (c in 'A'..'Z')
                 continue
             if (i == 0 && top)
                 return false
-            if (c >= '0' && c <= '9')
+            if (c in '0'..'9')
                 continue
-            if (i == 0 || i == txt.length-1)
+            if (i == 0 || i == part.length-1)
                 return false
             if (c == '_' || c == '-')
                 continue
@@ -789,15 +785,6 @@ private fun httpRequest(method: String, uri: URI, data: Any? = null, headers: Pr
     return HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build().send(request.build(), HttpResponse.BodyHandlers.ofInputStream())
-}
-
-private fun getVariables(): Variables {
-    var variables = CURRENT_VARIABLES.get()
-    if (variables == null) {
-        variables = Variables()
-        CURRENT_VARIABLES.set(variables)
-    }
-    return variables
 }
 
 private fun getInputStream(src: Any?): InputStream {

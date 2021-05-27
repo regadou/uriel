@@ -16,7 +16,7 @@ class Main {
     companion object {
         @JvmStatic
         fun main(vararg args: String) {
-            Quarkus.run(Application::class.java, *checkDebug(args as Array<String>))
+            Quarkus.run(Application::class.java, *args)
         }
     }
 }
@@ -31,12 +31,22 @@ class Application(): QuarkusApplication {
     val printScriptResult: Boolean = false
 
     override fun run(vararg args: String): Int {
+        val cx = currentContext(args)
         addFunction(Action("service", null) { params -> runService(params, printActions) })
         initAudioFunctions()
         initMusicFunctions()
-        if (args.isNotEmpty()) {
+        if (cx.script != null) {
             try {
-                val result = execute(Expression(args.joinToString(" ")))
+                val result = execute(Expression(cx.script))
+                if (printScriptResult && result != null)
+                    println(toString(result))
+                return 0
+            }
+            catch (e: Throwable) { return logError(e) }
+        }
+        if (cx.arguments.isNotEmpty()) {
+            try {
+                val result = execute(Expression(cx.arguments.joinToString(" ")))
                 if (printScriptResult && result != null)
                     println(toString(result))
                 return 0

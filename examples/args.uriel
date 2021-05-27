@@ -1,4 +1,0 @@
-#!/usr/bin/env uriel
-
-print args
-

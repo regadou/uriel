@@ -1,0 +1,4 @@
+#!/usr/bin/env uriel
+
+put args arguments end
+print "You gave " args/size " arguments: " args

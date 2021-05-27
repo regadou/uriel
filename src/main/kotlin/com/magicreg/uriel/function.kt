@@ -5,7 +5,6 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.KVisibility
 import kotlin.system.exitProcess
-import org.apache.commons.beanutils.BeanMap
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
@@ -226,6 +225,17 @@ val PRINT = Action("print", null) { params ->
     null
 }
 
+val ARGUMENTS = Action("arguments", null) { params ->
+    val cx = currentContext()
+    val args = cx.arguments
+    for (p in params.indices) {
+        val key = getKey(params[p])
+        val value = if (p < args.size) args[p] else null
+        cx[key] = value
+    }
+    args
+}
+
 val SHELL = Action("shell", 1) { params ->
     val cmd = params.joinToString(" ") { toString(execute(it)) }
     Runtime.getRuntime().exec(cmd, null, null).waitFor()
@@ -404,7 +414,7 @@ private fun initFunctions(): MutableMap<String,UFunction> {
         EQUAL, LESS, MORE, AND, OR, NOT, OF, // IN, AT, FROM, TO, OUT, BETWEEN
         ADD, // REMOVE, MULTIPLY, DIVIDE, MODULO, EXPONENT, ROOT, LOGARITHM
         URI, STRING, NUMBER, REAL, INTEGER, BOOLEAN, DATE, LIST, SET, MAP,
-        READ, PRINT, EXIT, EACH, WHILE, END // IF, ELSE, FUNCTION
+        READ, PRINT, ARGUMENTS, EXIT, EACH, WHILE, END // IF, ELSE, FUNCTION
     )) {
         map[f.name] = f
     }

@@ -260,7 +260,7 @@ private fun evalToken(token: String): Any? {
         ?: checkNumeric(token)
         ?: getMusicalNote(token)
         ?: checkResource(token)
-        //TODO: if still null, do we throw exception or it might be something else ?
+        ?: throw RuntimeException("Invalid token: $token")
 }
 
 private fun checkNumeric(token: String): Any? {
@@ -278,10 +278,11 @@ private fun checkNumeric(token: String): Any? {
     return token.toLongOrNull() ?: token.toDoubleOrNull() ?: toDate(token)
 }
 
-private fun checkResource(src: String): Resource? {
+private fun checkResource(src: String): Any? {
     val r = Resource(src)
-    if (r.uri == null)
-        return null
+    val uri = r.uri ?: return null
+    if (uri.scheme == null && currentContext().containsKey(uri.path))
+        return r.getData() ?: Expression()
     return r
 }
 

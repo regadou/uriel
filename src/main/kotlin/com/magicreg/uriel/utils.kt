@@ -1,6 +1,5 @@
 package com.magicreg.uriel
 
-import java.io.BufferedReader
 import java.io.InputStreamReader
 import kotlin.reflect.KClass
 import org.apache.commons.beanutils.BeanMap
@@ -315,15 +314,6 @@ fun getInternalResource(path: String): String {
     val txt = InputStreamReader(input).readText()
     input.close()
     return txt
-}
-
-fun checkDebug(args: Array<String>): Array<String> {
-    if (args.isNotEmpty() && args[0] == "debug") {
-        println("*** press enter after starting the debugger ***")
-        BufferedReader(InputStreamReader(System.`in`)).readLine()
-        return listOf(*args).subList(1, args.size).toTypedArray()
-    }
-    return args
 }
 
 private fun getFirstTag(txt: String): String? {
